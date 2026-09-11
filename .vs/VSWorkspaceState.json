@@ -1,0 +1,12 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\InspectionApp",
+    "\\InspectionApp\\.github",
+    "\\InspectionApp\\app",
+    "\\InspectionApp\\config",
+    "\\InspectionApp\\iris"
+  ],
+  "SelectedNode": "\\InspectionApp\\iris\\IrisServer.py",
+  "PreviewInSolutionExplorer": false
+}
