@@ -8,6 +8,7 @@ bash ~/Desktop/InspectionApp/setup/start_iris.sh
 # Y esto para iniciar automáticamente al encender la computadora
 # Mas comentarios de prueba
 #Comentario mio
+#CarlosUribe Comment
 echo "Proceso finalizado. Presiona Enter para cerrar esta ventana."
 read
 #otro comentario mio de prueba 
