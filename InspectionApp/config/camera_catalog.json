@@ -1,0 +1,107 @@
+{
+    "_comment": "Camera capability catalog. Loaded by AppFactory to resolve model-specific behavior without putting hardware knowledge into adapter code. Add new models here as support is added.",
+
+    "CSI": [
+        {
+            "name": "RPIcam v3 Wide NoIR",
+            "sensor": "imx708",
+            "supports_af_motor": true,
+            "setup_notes": "No special boot configuration required. camera_auto_detect=1 (default) works.",
+            "resolutions": {
+                "high":   {"label": "4608 × 2592", "width": 4608, "height": 2592},
+                "medium": {"label": "2304 × 1296", "width": 2304, "height": 1296},
+                "low":    {"label": "1280 × 720",  "width": 1280, "height":  720}
+            }
+        },
+        {
+            "name": "RPIcam v3 Wide",
+            "sensor": "imx708",
+            "supports_af_motor": true,
+            "setup_notes": "No special boot configuration required. camera_auto_detect=1 (default) works.",
+            "resolutions": {
+                "high":   {"label": "4608 × 2592", "width": 4608, "height": 2592},
+                "medium": {"label": "2304 × 1296", "width": 2304, "height": 1296},
+                "low":    {"label": "1280 × 720",  "width": 1280, "height":  720}
+            }
+        },
+        {
+            "name": "RPIcam v3",
+            "sensor": "imx708",
+            "supports_af_motor": true,
+            "setup_notes": "No special boot configuration required. camera_auto_detect=1 (default) works.",
+            "resolutions": {
+                "high":   {"label": "4608 × 2592", "width": 4608, "height": 2592},
+                "medium": {"label": "2304 × 1296", "width": 2304, "height": 1296},
+                "low":    {"label": "1280 × 720",  "width": 1280, "height":  720}
+            }
+        },
+        {
+            "name": "RPIcam Lens",
+            "sensor": "imx477",
+            "supports_af_motor": false,
+            "setup_notes": "HQ Camera (C/CS-mount). No electronic focus motor — AfMode/LensPosition are skipped automatically. If not detected: set camera_auto_detect=0 and add dtoverlay=imx477 in /boot/firmware/config.txt, then reboot.",
+            "resolutions": {
+                "high":   {"label": "4056 × 3040", "width": 4056, "height": 3040},
+                "medium": {"label": "2028 × 1520", "width": 2028, "height": 1520},
+                "low":    {"label": "1012 × 760",  "width": 1012, "height":  760}
+            }
+        },
+        {
+            "name": "RPIcam v2",
+            "sensor": "imx219",
+            "supports_af_motor": false,
+            "setup_notes": "Fixed-focus camera. AfMode and LensPosition controls are not available.",
+            "resolutions": {
+                "high":   {"label": "3280 × 2464", "width": 3280, "height": 2464},
+                "medium": {"label": "1640 × 1232", "width": 1640, "height": 1232},
+                "low":    {"label": "640 × 480",   "width":  640, "height":  480}
+            }
+        },
+        {
+            "name": "RPIcam v1.3",
+            "sensor": "ov5647",
+            "supports_af_motor": false,
+            "setup_notes": "Fixed-focus camera. AfMode and LensPosition controls are not available.",
+            "resolutions": {
+                "high":   {"label": "2592 × 1944", "width": 2592, "height": 1944},
+                "medium": {"label": "1296 × 972",  "width": 1296, "height":  972},
+                "low":    {"label": "640 × 480",   "width":  640, "height":  480}
+            }
+        }
+    ],
+
+    "USB": [
+        {
+            "name": "Logitech HD 1080p",
+            "sensor": "unknown",
+            "supports_af_motor": false,
+            "setup_notes": "Logitech HD 1080p (C270/B910/similar). V4L2 driver may ignore requests below 1080p and use native sensor resolution instead. Use 1920×1080 or 2304×1536 to avoid silent rounding.",
+            "resolutions": {
+                "high":   {"label": "2304 × 1536", "width": 2304, "height": 1536},
+                "medium": {"label": "1920 × 1080", "width": 1920, "height": 1080}
+            }
+        },
+        {
+            "name": "Logitech C920",
+            "sensor": "unknown",
+            "supports_af_motor": false,
+            "setup_notes": "USB UVC camera. Handled by UsbCameraAdapter.",
+            "resolutions": {
+                "high":   {"label": "1920 × 1080", "width": 1920, "height": 1080},
+                "medium": {"label": "1280 × 720",  "width": 1280, "height":  720}
+            }
+        },
+        {
+            "name": "Genérica USB / Webcam",
+            "sensor": "unknown",
+            "supports_af_motor": false,
+            "setup_notes": "Cámara USB genérica. Handled by UsbCameraAdapter. Si la resolución solicitada no está en el firmware, V4L2 la redondea silenciosamente. Usar resoluciones nativas del sensor.",
+            "resolutions": {
+                "high":   {"label": "1920 × 1080", "width": 1920, "height": 1080},
+                "medium": {"label": "1280 × 720",  "width": 1280, "height":  720}
+            }
+        }
+    ],
+
+    "IP": []
+}

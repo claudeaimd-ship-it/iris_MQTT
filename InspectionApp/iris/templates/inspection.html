@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Inspection{% endblock %}
+
+{% block content %}
+<div class="inspection-page">
+
+    <!-- ── Top control bar ─────────────────────────────────────────────────── -->
+    <div class="inspection-controls">
+
+        <div class="control-group">
+            <label class="ctrl-label">Sequence</label>
+            <select id="seq-select" class="input-select input-select-sm">
+                {% for seq in sequences %}
+                <option value="{{ seq.path }}" {% if current_sequence and seq.filename==current_sequence %}selected{%
+                    endif %}>
+                    {{ seq.part_model }} — {{ seq.filename }}
+                </option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-ghost btn-sm" id="btn-load-seq">Load</button>
+        </div>
+
+        <div class="control-divider"></div>
+
+        <div class="control-group">
+            <label class="ctrl-label">Mode</label>
+            <div class="toggle-group">
+                <button class="toggle-btn active" id="btn-mode-inference" data-mode="inference">Inference</button>
+                <button class="toggle-btn" id="btn-mode-samples" data-mode="samples">Samples</button>
+            </div>
+        </div>
+
+        <div class="control-group samples-only hidden" id="label-group">
+            <label class="ctrl-label">Label</label>
+            <div class="toggle-group toggle-group-trainok">
+                <button class="toggle-btn label-btn label-btn-trainok active" data-label="ok">Train OK</button>
+            </div>
+            <div class="toggle-group">
+                <button class="toggle-btn label-btn" data-label="test_ok">Test OK</button>
+                <button class="toggle-btn label-btn" data-label="nok">Test NOK</button>
+            </div>
+            <button class="btn btn-ghost btn-sm hidden" id="btn-schedule-captures"
+                title="Automate periodic captures for the current label">🕒 Schedule</button>
+        </div>
+
+        <div class="control-divider"></div>
+
+        <div class="control-group">
+            <button class="btn btn-success" id="btn-start">▶ Start</button>
+            <button class="btn btn-danger hidden" id="btn-stop">■ Stop</button>
+        </div>
+
+        <div class="control-group">
+            <button class="btn btn-ghost btn-sm" id="btn-preview">📷 Preview</button>
+        </div>
+
+        <div id="no-models-warning" class="warning-badge hidden">
+            ⚠ No models loaded — inference unavailable
+        </div>
+
+        <div class="control-divider" style="margin-left:auto"></div>
+
+        <div class="control-group">
+            <label class="ctrl-label">Dry Run</label>
+            <button class="toggle-btn" id="btn-dry-run"
+                title="Skip NOK GPIO steps — does not affect PLC signals">OFF</button>
+        </div>
+
+        <div class="control-group">
+            <label class="ctrl-label">Forced SCRAP</label>
+            <button class="toggle-btn" id="btn-forced-scrap" title="Force 3 loops to SCRAP">OFF</button>
+        </div>
+
+    </div>
+
+    <!-- ── Main area: cameras left, result right ──────────────────────────── -->
+    <div class="inspection-layout">
+
+        <!-- Camera feeds -->
+        <section class="camera-section">
+            <div class="view-mode-tabs">
+                <button class="view-tab" data-tab="stream" disabled title="No disponible — multi-cámara pendiente">📺
+                    Live Stream</button>
+                <button class="view-tab view-tab-active" data-tab="frames">📷 Last Captures</button>
+            </div>
+            <div id="camera-stream-grid" class="camera-grid">
+                <!-- Populated by inspection.js based on sequence camera_port list -->
+            </div>
+        </section>
+
+        <!-- Last result panel -->
+        <aside class="result-panel">
+            <div class="result-header">
+                <span>Last Result</span>
+                <span class="result-badge" id="result-badge">—</span>
+            </div>
+
+            <div id="result-body" class="result-body">
+                <p class="muted result-empty">No result yet.</p>
+            </div>
+
+            <!-- GPIO event panel -->
+            <div class="gpio-events-header" id="gpio-events-header" style="display:none">
+                <span>GPIO Events</span>
+            </div>
+            <div id="gpio-events-body" class="gpio-events-body"></div>
+
+            <div class="result-footer">
+                <span class="muted" id="cycle-counter">Cycles: 0</span>
+            </div>
+        </aside>
+
+    </div><!-- .inspection-layout -->
+
+    <!-- Schedule Timed Captures modal (samples mode, Train OK / Test OK labels only) -->
+    <div class="modal-overlay hidden" id="schedule-modal">
+        <div class="modal">
+            <h3>Schedule Timed Captures</h3>
+            <p class="muted" style="font-size: 0.85rem; margin-bottom: 1rem;">
+                Automates periodic dataset collection while Samples mode keeps
+                running on production triggers. Settings are in-memory only —
+                not saved to disk, lost on restart.
+            </p>
+
+            <div class="field-group">
+                <label>Images per window</label>
+                <input type="number" id="schedule-images-per-window" value="20" min="1">
+            </div>
+
+            <div class="field-group">
+                <label>Interval between windows</label>
+                <div style="display:flex; gap:0.4rem; align-items:center;">
+                    <input type="number" id="schedule-interval-hours" value="1" min="0" style="flex:1"
+                        title="Hours">
+                    <span class="muted">hrs</span>
+                    <input type="number" id="schedule-interval-minutes" value="30" min="0" max="59" style="flex:1"
+                        title="Minutes">
+                    <span class="muted">min</span>
+                </div>
+                <small class="muted" id="schedule-interval-tip" style="display:none;">
+                    Tip: for Test OK, a shorter interval captures more variety of real production moments.
+                </small>
+            </div>
+
+            <div class="field-group">
+                <label>Target images (total)</label>
+                <input type="number" id="schedule-target-images" value="300" min="1">
+                <small class="muted" id="schedule-target-note"></small>
+            </div>
+
+            <div class="btn-row">
+                <button type="button" class="btn btn-ghost" id="btn-schedule-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger hidden" id="btn-schedule-disable">Turn Off</button>
+                <button type="button" class="btn btn-success" id="btn-schedule-confirm">Turn On</button>
+            </div>
+        </div>
+    </div>
+
+</div><!-- .inspection-page -->
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inspection.js') }}"></script>
+{% endblock %}

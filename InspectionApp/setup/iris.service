@@ -1,0 +1,118 @@
+# =============================================================================
+# systemd unit file for Iris (InspectionApp web interface)
+#
+# Installation (preferred — substitutes the placeholders below automatically):
+#   bash setup/install_units.sh
+#   sudo systemctl enable iris    # auto-start on boot
+#   sudo systemctl start  iris    # start now
+#
+# Installation (manual — if you'd rather not run the script): replace every
+# __IRIS_USER__ with your login user (`whoami`) and every __IRIS_HOME__ with
+# your home directory (`echo $HOME`), THEN:
+#   sudo cp iris.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable iris
+#   sudo systemctl start  iris
+#
+# Do NOT use systemd's %h specifier here — it silently broke this unit in
+# production. Full incident history + why gunicorn (not the Flask dev
+# server): .github/copilot-instructions.md (search "iris.service").
+#
+# Useful commands:
+#   sudo systemctl status  iris
+#   sudo systemctl restart iris
+#   journalctl -u iris -f                      # live application logs
+#   journalctl -u iris --since "1 hour ago"
+#
+# Application logs (print statements from the Python code) are captured by
+# systemd and readable with journalctl. They are also written to the
+# timestamped file under logs_path by TimestampedFileLogger.
+#
+# Requires: gunicorn installed in the Python environment used by the service.
+#   pip install gunicorn
+#
+# Crash-loop protection (StartLimitIntervalSec/StartLimitBurst below): stops
+# Restart=on-failure from retrying forever if Iris crashes on every start —
+# see the "Troubleshooting" block at the bottom of this file.
+# =============================================================================
+
+[Unit]
+Description=Iris — InspectionApp web interface
+After=network.target
+# Give up (mark the unit "failed") after 5 restarts within 60s instead of
+# retrying forever — see "Troubleshooting" block at the bottom of this file.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+# Placeholders substituted automatically by `bash setup/install_units.sh`
+# (or replace by hand — see file header) so this template works for any
+# username without further edits.
+User=__IRIS_USER__
+Group=__IRIS_USER__
+
+WorkingDirectory=__IRIS_HOME__/Desktop/InspectionApp
+
+# gunicorn options:
+#   --workers 1          Single worker is correct for a single-camera system
+#                        that shares state (IrisState) in-process.
+#   --threads 4          Handles concurrent requests (MJPEG stream + API calls).
+#   --worker-class gthread
+#   --bind 0.0.0.0:5000  Listen on all interfaces, port 5000.
+#   --access-logfile /dev/null
+#                        Suppresses the per-request access log. Without this,
+#                        every 3-second status poll appears as a log entry.
+#   --log-file -         Send gunicorn error/startup messages to stderr
+#                        (captured by systemd journal).
+#
+# EDIT the venv name ("mezt") below if this Pi uses a differently-named
+# virtualenv (see VENVS_LIST in setup/start_iris.sh) — install_units.sh does
+# NOT substitute this, since a Pi could have more than one venv.
+#
+# ExecStartPre= runs the cold-boot CSI camera prewarm (best-effort, leading
+# "-" ignores its exit code) — see setup/run_camera_prewarm.sh and section
+# 24 of .github/copilot-instructions.md.
+ExecStartPre=-/bin/bash -c 'PREWARM_PYTHON=__IRIS_HOME__/venvs/mezt/bin/python bash setup/run_camera_prewarm.sh'
+ExecStart=__IRIS_HOME__/venvs/mezt/bin/gunicorn \
+    --config gunicorn.conf.py \
+    "iris.IrisServer:create_iris_app()"
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30
+
+# Uncomment if EdgeTPU runtime needs a custom path.
+#Environment=PYTHONPATH=__IRIS_HOME__/Desktop/InspectionApp
+#Environment=LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu
+
+[Install]
+WantedBy=multi-user.target
+
+# =============================================================================
+# Troubleshooting: Iris stuck in a restart loop / won't start
+#
+# Symptom: `systemctl status iris` shows "activating (auto-restart)" flapping
+# every few seconds, or "failed (Result: start-limit-hit)" (after the
+# StartLimit above kicks in).
+#
+#   sudo systemctl status iris                 # current state + last log lines
+#   journalctl -u iris -n 50 --no-pager        # see WHY it's crashing (read this first)
+#   sudo systemctl reset-failed iris           # clear the start-limit-hit state
+#                                               # (needed before it will start again,
+#                                               #  AFTER fixing the root cause below)
+#
+# Common root causes and how to unstick each one:
+#   - Port 5000 already in use (stale gunicorn worker, or `python run.py`
+#     left running by hand):
+#       sudo lsof -i:5000                      # find what's holding the port
+#       pkill -9 -f "gunicorn.*IrisServer"      # force-kill any stuck gunicorn workers
+#   - Camera/hardware error on every startup (e.g. cable unplugged, GPIO pin
+#     still claimed by a zombie process): fix the hardware, then
+#       sudo systemctl reset-failed iris && sudo systemctl restart iris
+#   - Corrupted config (e.g. config/sequence_draft.json): check the
+#     journalctl traceback above for the exact file/line, fix or restore it,
+#     then reset-failed + restart as above.
+#   - Need to stop the loop immediately while investigating (without
+#     disabling auto-start on boot):
+#       sudo systemctl stop iris
+# =============================================================================

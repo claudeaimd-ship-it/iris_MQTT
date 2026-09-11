@@ -1,0 +1,589 @@
+// JSON to propose a sequence example. This can be modified depeding of the needs os the developer.
+// The main idea is to have a template that can be easily edited and used for different sequence examples.
+{
+  "project_name": "Nissan Example",
+  "part_model": "Nissan_Shroud",
+  "description": "This is an example sequence for the Nissan Shroud Project but with modified steps for testing purposes.",
+  "paths": {
+    // The paths are defined to have a better organization of the files and folders of the project, 
+    // and to avoid errors in the execution of the sequence due to wrong paths. 
+    // The system will recognize these paths and will save the captured images, results of the inference, logs, etc. 
+    // in the corresponding folders according to these paths.
+    // The paths can be modified according to the user, and will be defined troughout the Web Interface Aplication Abigail or
+    // the local Web Interface.
+    "train_images_path": "./data/images/train/",
+    "target_train_images": 1500,
+    "inference_images_path": "./data/images/inference/",
+    "traceability_inference_path": "./data/traceability/inference/",
+    "model_path": "./data/models/"
+  },
+  "hardware": {
+    // device can be: Raspberry Pi 4B, Jetson Nano, PC, etc.
+    //
+    // camera_type: "CSI", "USB", or "IP".
+    //   AppFactory reads this to look up the camera_type section in config/camera_catalog.json,
+    //   which lists all supported models for that connection type along with their capabilities.
+    //   Only one camera_type is allowed per sequence.
+    //
+    // camera_model: exact name of the camera model as listed in config/camera_catalog.json.
+    //   AppFactory uses this to resolve model-specific capabilities:
+    //   - supports_af_motor: if false (e.g. RPIcam Lens / imx477), AfMode and LensPosition
+    //     controls are NOT sent to Picamera2, and set_lens_position() becomes a safe no-op.
+    //     This is required because those controls simply do not exist on fixed-focus sensors
+    //     or CS/C-mount lens cameras without an electronic focus motor.
+    //   - setup_notes in the catalog documents any required OS-level configuration, for example:
+    //     RPIcam Lens (imx477) may require camera_auto_detect=0 + dtoverlay=imx477 in
+    //     /boot/firmware/config.txt if the sensor is not auto-detected.
+    //   If the model is not found in the catalog, AppFactory prints a warning and defaults to
+    //   supports_af_motor=True.
+    //
+    // number_of_cameras: how many CSI ports are physically connected and used in this sequence.
+    //   MUST match the exact length of the camera_port list. AppFactory raises ValueError if not.
+    //   The UI should enforce this: selecting 2 cameras locks the camera_port list to exactly 2 entries.
+    //
+    // camera_port: For CSI cameras: A, B, C, D. For USB cameras: device path. For IP: IP address.
+    //   The number of entries MUST equal number_of_cameras.
+    //
+    // camera_capture_resolution: resolution for full-quality captures (used during inference/samples).
+    // camera_preview_parameters:
+    //   - resolution: preview stream resolution for the MJPEG web stream.
+    //   - exposure_time: preview exposure in microseconds (0 = auto).
+    //   - lens_position: preview lens position (ignored if supports_af_motor=false).
+    // inference_device can be: Coral USB Accelerator, Google Edge TPU, NVIDIA Jetson Nano, CPU, etc.
+    // io_module can be: MDA&DA Zac v2, MDA&DA Zac v1, other, etc.
+    "device": "Raspberry Pi 4B",
+    "camera_type": "CSI",
+    "camera_model": "RPIcam v3 Wide NoIR",
+    "number_of_cameras": 4,
+    "camera_port": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "camera_capture_resolution": [
+      4608,
+      2592
+    ],
+    "camera_preview_parameters": {
+      "resolution": [
+        320,
+        180
+      ],
+      "exposure_time": 0,
+      "lens_position": 0
+    },
+    "inference_device": "Coral USB Accelerator",
+    "io_module": "IO Module By MDA&DA Zac v2",
+    // trigger_input_pin: GPIO input pin awaited by both GuiInferenceAdapter (via SequenceExecutor step 1)
+    // and GuiSamplesAdapter (directly in its capture loop) for the PLC/robot start signal.
+    // Must match the pin defined as "type": "input" in gpio_configuration below.
+    "trigger_input_pin": 13,
+    // spotlight_gpio_pins: output pins toggled for illumination during each capture sweep.
+    // Used by GuiSamplesAdapter._execute_capture_cycle() and by SequenceExecutor gpio_action steps.
+    "spotlight_gpio_pins": [20, 21],
+    "gpio_configuration": [
+      // The available GPIO pins for the IO Module By MDA&DA Zac v2 are: 13, 16, 19, 20, 21 and 26. 
+      // Depending of the io_module. The pin_number list should be defined in another JSON file to show 
+      // the available GPIO pins for each io_module, and the user should select the pin_number 
+      // from that list to avoid errors in the sequence.
+      {
+        "pin_number": 13,
+        "type": "input",
+        "description": "Flag response of the PLC or other device that indicates the start or continuation of the sequence."
+      },
+      {
+        "pin_number": 20,
+        "type": "output",
+        "description": "Physical spotlight connected. Position X, Direction Y, etc."
+      },
+      {
+        "pin_number": 21,
+        "type": "output",
+        "description": "Physical spotlight connected. Position X, Direction Y, etc."
+      },
+      {
+        "pin_number": 26,
+        "type": "output",
+        "description": "Flag response of the Vision System to the production line, indicating the result of the inference, continuation of the sequence, etc."
+      }
+    ]
+  },
+  "preprocessing_image_parameters": [
+    // The preprocessing_image_parameters are defined like a tool using the UI of the Abigail or Local Web Interface
+    // The system will recognize these parameters and will apply the corresponding preprocessing to the captured images before the inference,
+    // according to the parameters defined in this section.
+    // Only the tool "resize_to_training_resolution" is defined for the Training Application and is required to avoid errors in the
+    // inference loop.
+    // The order of the tools in the pipeline define the order of the execution of the preprocessing, so it is important 
+    // to define the order of the tools according to the needs of the project and the requirements of the model 
+    // that is being used in the inference.
+    // This order will be read for the Training Application to train the model with the same preprocessing that will be 
+    // applied in the inference, and to avoid errors in the training and inference due to different preprocessing.
+    {
+      "camera_port": "A",
+      "view": "front_view",
+      "section": "1",
+      "pipeline": [
+        {
+          "tool": "set_time_exposure",
+          "parameters": {
+            "exposure_time": 1000
+          }
+        },
+        {
+          "tool": "set_lens_position",
+          "parameters": {
+            "lens_position": 10.0
+          }
+        },
+        {
+          "tool": "apply_clahe"
+        },
+        {
+          "tool": "apply_roi_crop",
+          "parameters": {
+            "x": 100,
+            "y": 100,
+            "h": 200,
+            "w": 200
+          }
+        },
+        {
+          "tool": "put_black_circle",
+          "parameters": {
+            "x": 150,
+            "y": 150,
+            "radius": 20
+          }
+        },
+        {
+          "tool": "put_black_rectangle",
+          "parameters": {
+            "x": 120,
+            "y": 120,
+            "h": 50,
+            "w": 50
+          }
+        },
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "front_view",
+      "section": "1",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "back_view",
+      "section": "1",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "back_view",
+      "section": "1",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "back_view",
+      "section": "1",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "front_view",
+      "section": "2",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "front_view",
+      "section": "2",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "back_view",
+      "section": "2",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    },
+    {
+      "view": "back_view",
+      "section": "2",
+      "pipeline": [
+        {
+          "tool": "resize_to_training_resolution",
+          "parameters": {
+            "width": 525,
+            "height": 525
+          }
+        }
+      ]
+    }
+  ],
+  "steps": [
+    // Steps of sequence refer to the different actions that the sequence will perform.
+    // This sequence is defined by each specific project, so the steps can be modified according to the needs of the user and
+    // limitations of hardware or conections with other devices like PLC, Robotic Arms, etc.
+    // The sequence would be defined side by side with the logic sequence of the entire project, its meanining
+    // that the steps should be synchronized with the logic responses and any actions that involve the Vision System 
+    // and the comunication with the production line.
+    // Modify these steps without the knowledge of the entire project and its logic sequence can lead to errors in 
+    // the execution of the sequence, the entire project and affect the production line, so it is important to have 
+    // a clear understanding of the project and its requirements before modifying the steps.
+    // RECOMENDATION: Make only one action per step to have a better control of the sequence
+    // Possible actions/parameters for each step:
+    // - step_number: The number of the step, this is important to define the order of the steps in the sequence, and to define if the step is for capture or inference.
+    // - description: A brief description of the step, this is important to have a better understanding of the sequence and its logic.
+    // - camera_action: take_picture, start_preview, stop_preview, set_exposure_time, set_lens_position, etc.
+    // - gpio_action: turn_on, turn_off, send_output, wait_for_input, etc.
+    // - inference_action: excute_full_inspection, execute_partial_inspection, etc.
+    // - wait_for_input_parameters: timeout, check_interval, expected_value, etc. This is important to define the parameters for the wait_for_input action in the gpio_action.
+    // - delay_after_step: This is the time in milliseconds that the system will wait after the execution of the step before continue with the next step.
+    {
+      "step_number": 0,
+      "description": "Turn off the spotlights and set the output GPIO out pins to 0 as default state",
+      "gpio_action": [
+        {
+          "pin_number": 20,
+          "action": "turn_off"
+        },
+        {
+          "pin_number": 21,
+          "action": "turn_off"
+        },
+        {
+          "pin_number": 26,
+          "action": "send_output",
+          "parameters": {
+            "value": 0,
+            "duration": 50
+          }
+        }
+      ],
+      "delay_after_step": 50
+    },
+    {
+      // Take as example the Nissan Shroud Project, the first step of the sequence is to wait for the input signal from 
+      // the Robotic Arm that indicates the start of the sequence, this signal is received through the GPIO pin 13 of the IO Module By MDA&DA Zac v2, 
+      // so in this step we will wait for that signal to start the sequence.
+      "step_number": 1,
+      "description": "Wait for the input signal to start the inference sequence",
+      "gpio_action": [
+        {
+          "pin_number": 13,
+          "action": "wait_for_input",
+          "parameters": {
+            "expected_value": 1
+          }
+        }
+      ],
+      "wait_for_input_parameters": {
+        "timeout": 8000
+      }
+    },
+    {
+      "step_number": 2,
+      "description": "Turn on the spotlight for the front view",
+      "gpio_action": [
+        {
+          "pin_number": 20,
+          "action": "turn_on"
+        }
+      ],
+      "delay_after_step": 50
+    },
+    {
+      // The order of the cameras in the camera_action list is the way the system will take the pictures.
+      "step_number": 3,
+      "description": "Take the picture for front view and first section",
+      "camera_action": [
+        {
+          "camera_port": "A",
+          "action": "take_picture",
+          "prefix_view": "front_view_section_1",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        },
+        {
+          "camera_port": "B",
+          "action": "take_picture",
+          "prefix_view": "front_view_section_1",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        }
+      ]
+    },
+    {
+      "step_number": 4,
+      "description": "Turn off the spotlights and turn on the next ones for the back view",
+      "gpio_action": [
+        {
+          "pin_number": 20,
+          "action": "turn_off"
+        },
+        {
+          "pin_number": 21,
+          "action": "turn_on"
+        }
+      ],
+      "delay_after_step": 50
+    },
+    {
+      "step_number": 5,
+      "description": "Take the picture for back view and first section",
+      "camera_action": [
+        {
+          "camera_port": "C",
+          "action": "take_picture",
+          "prefix_view": "back_view_section_1",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        },
+        {
+          "camera_port": "D",
+          "action": "take_picture",
+          "prefix_view": "back_view_section_1",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        }
+      ]
+    },
+    {
+      "step_number": 6,
+      "description": "Turn off the spotlights and send the signal to the production line indicating the end of the capture for the first section of the sequence",
+      "gpio_action": [
+        {
+          "pin_number": 21,
+          "action": "turn_off"
+        },
+        {
+          "pin_number": 26,
+          "action": "send_output",
+          "parameters": {
+            "value": 1,
+            "duration": 500
+          }
+        }
+      ],
+      "delay_after_step": 50
+    },
+    {
+      "step_number": 7,
+      "description": "Wait for the input signal to continue with the second section of the sequence",
+      "gpio_action": [
+        {
+          "pin_number": 13,
+          "action": "wait_for_input",
+          "parameters": {
+            "expected_value": 1
+          }
+        }
+      ],
+      "wait_for_input_parameters": {
+        "timeout": 8000
+      }
+    },
+    {
+      "step_number": 8,
+      "description": "Turn on the spotlight for the front view",
+      "gpio_action": [
+        {
+          "pin_number": 20,
+          "action": "turn_on"
+        }
+      ],
+      "delay_after_step": 50
+    },
+    {
+      "step_number": 9,
+      "description": "Take the picture for front view and second section",
+      "camera_action": [
+        {
+          "camera_port": "A",
+          "action": "take_picture",
+          "prefix_view": "front_view_section_2",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        },
+        {
+          "camera_port": "B",
+          "action": "take_picture",
+          "prefix_view": "front_view_section_2",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        }
+      ]
+    },
+    {
+      "step_number": 10,
+      "description": "Turn off the spotlights and turn on the next ones for the back view",
+      "gpio_action": [
+        {
+          "pin_number": 20,
+          "action": "turn_off"
+        },
+        {
+          "pin_number": 21,
+          "action": "turn_on"
+        }
+      ],
+      "delay_after_step": 50
+    },
+    {
+      "step_number": 11,
+      "description": "Take the picture for back view and second section",
+      "camera_action": [
+        {
+          "camera_port": "C",
+          "action": "take_picture",
+          "prefix_view": "back_view_section_2",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        },
+        {
+          "camera_port": "D",
+          "action": "take_picture",
+          "prefix_view": "back_view_section_2",
+          "parameters": {
+            "exposure_time": 1000,
+            "lens_position": 9.0
+          }
+        }
+      ]
+    },
+    {
+      "step_number": 12,
+      "description": "Turn off the spotlights",
+      "gpio_action": [
+        {
+          "pin_number": 21,
+          "action": "turn_off"
+        }
+      ],
+      "delay_after_step": 50
+    },
+    // If the sequence is for capture samples or testing, the sequence can end here.
+    // Define the steps limit to 999, so any step with a number higher than 999, the system will understand that 
+    // these steps are for the inference result, specificaly for the image preprocessing and, if is required,
+    // others actions while the inference is running. 
+    // The order of the actions define the order od the execution, in this case:
+    // 1. Apply CLAHE to the captured images
+    // 2. Crop the region of interest (ROI) of the captured images
+    // 3. Put a circle on the coordinates of the captured images to ignore areas of the image that can affect the inference result.
+    // 4. Apply normalization to the captured images. THIS IS ONLY FOR MOBILENETV2 MODEL, for other models 
+    // the normalization parameters can be different, so it is important to define the normalization parameters 
+    // according to the model that is being used in the inference. 
+    // TO KNOW WHAT NORMALIZATION APPLY TO THE SPECIFIC MODEL, IS MANDATORY SET THE MODEL NAME WITH THE SUBJECT "mnetv2".
+    // The system will recognize that the model is MobilenetV2 (or another type) and will apply the normalization parameters (if necessary) for that model,
+    // but if the model name don't have the subject "mnetv2", the system will not apply any normalization to the captured images.  
+    {
+      "step_number": 1001,
+      "description": "Start the execution of the inference for the captured images",
+      "inference_action": [
+        "execute_full_inspection"
+      ]
+    },
+    // If the sequence is for inference in production and the inference result is NOK, 
+    // the sequence can continue with more steps to send the result of the inference to the production line,
+    // and follow more steps according to the logic sequence of the entire project.
+    // - For example, in Nissan Shroud Project:
+    // if the inference result is NOK, the system only send a signal to the production line to move the piece to the SCRAP line,
+    // but in other projects, the system can send a signal to a robotic arm to remove the piece from the production line,
+    // send a signal to a PLC to activate an alarm, and other actions according to the needs of the project and the logic sequence of the entire project.
+    // Here, in the JSON sequences, THIS STEPS MUST BE DEFINED WITH A NEGATIVE STEP NUMBER TO AVOID ERRORS in the execution of the sequence.
+    {
+      "step_number": -1,
+      "description": "Send the signal to the Robotic Arm or PLC to move the piece to the SCRAP line",
+      "gpio_action": [
+        {
+          "pin_number": 26,
+          "action": "send_output",
+          "parameters": {
+            "value": 1,
+            "duration": 500
+          }
+        }
+      ],
+      "delay_after_step": 50
+    }
+  ],
+  "metadata": {
+    "created_by": "User Name",
+    "created_at": "2024-06-01T12:00:00Z",
+    "version": "1.0"
+  }
+}

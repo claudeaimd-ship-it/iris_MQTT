@@ -1,0 +1,71 @@
+{
+    "_comment": "IO module catalog. Each module entry describes the GPIO pins available on the Raspberry Pi for that module, and any relay mode capabilities for v2/v3. Physical pin numbers refer to the RPi 40-pin header (board numbering). BCM numbers are the GPIO numbers used in gpiozero/RPi.GPIO. Odd physical pins (33, 35, 37) are wired to the module IN ports (signals from external device to RPi). Even physical pins (36, 38, 40) are wired to the module OUT ports (signals from RPi to external device). The module acts as an optoisolator/relay bridge between the RPi and the PLC or robot.",
+
+    "modules": [
+        {
+            "name": "IO Module By MDA&DA Zac v1",
+            "description": "Base module with opto-isolated inputs and outputs. 3 IN ports and 3 OUT ports connected to the RPi, plus a 4th port per direction on the module connector.",
+            "has_relay_mode": false,
+            "gpio": {
+                "input_pins_bcm":  [6 ,13, 19, 26],
+                "input_pins_physical": [31, 33, 35, 37],
+                "output_pins_bcm": [12, 16, 20, 21],
+                "output_pins_physical": [32, 36, 38, 40]
+            },
+            "module_connectors": {
+                "input_ports":  ["IN4", "IN3", "IN2", "IN1"],
+                "output_ports": ["OUT4", "OUT3", "OUT2", "OUT1"],
+                "_note": ""
+            },
+            "notes": "Opto-isolated only. No relay mode. v1 is the base version."
+        },
+        {
+            "name": "IO Module By MDA&DA Zac v2",
+            "description": "Same GPIO wiring as v1. Adds a physical switch per output channel to toggle between opto and relay mode. In relay mode each output drives a relay coil providing two contact sets with NA/COM/NC terminals.",
+            "has_relay_mode": true,
+            "gpio": {
+                "input_pins_bcm":  [6 ,13, 19, 26],
+                "input_pins_physical": [31, 33, 35, 37],
+                "output_pins_bcm": [12, 16, 20, 21],
+                "output_pins_physical": [32, 36, 38, 40]
+            },
+            "module_connectors": {
+                "input_ports":  ["IN4", "IN3", "IN2", "IN1"],
+                "output_ports_opto":  ["OUT4", "OUT3", "OUT2", "OUT1"],
+                "output_ports_relay": [
+                    {"port": "OUT4", "contacts": ["OUT4R7", "OUT4R8"]},
+                    {"port": "OUT3", "contacts": ["OUT3R5", "OUT3R6"]},
+                    {"port": "OUT2", "contacts": ["OUT2R3", "OUT2R4"]},
+                    {"port": "OUT1", "contacts": ["OUT1R1", "OUT1R2"]}
+                ],
+                "relay_terminals": ["NA", "COM", "NC"],
+                "_note": "Each OUT channel has an independent physical switch. Toggling to relay mode activates the corresponding relay coil; the two contact sets (e.g. OUT1R1, OUT1R2) share the same BCM output pin."
+            },
+            "notes": "v2 adds per-channel relay mode switch."
+        },
+        {
+            "name": "IO Module By MDA&DA Zac v3",
+            "description": "Functionally identical to v2 from the software perspective. Hardware differences are internal to the module PCB. GPIO pin mapping and relay mode behavior are the same as v2.",
+            "has_relay_mode": true,
+            "gpio": {
+                "input_pins_bcm":  [6 ,13, 19, 26],
+                "input_pins_physical": [31, 33, 35, 37],
+                "output_pins_bcm": [12, 16, 20, 21],
+                "output_pins_physical": [32, 36, 38, 40]
+            },
+            "module_connectors": {
+                "input_ports":  ["IN4", "IN3", "IN2", "IN1"],
+                "output_ports_opto":  ["OUT4", "OUT3", "OUT2", "OUT1"],
+                "output_ports_relay": [
+                    {"port": "OUT4", "contacts": ["OUT4R7", "OUT4R8"]},
+                    {"port": "OUT3", "contacts": ["OUT3R5", "OUT3R6"]},
+                    {"port": "OUT2", "contacts": ["OUT2R3", "OUT2R4"]},
+                    {"port": "OUT1", "contacts": ["OUT1R1", "OUT1R2"]}
+                ],
+                "relay_terminals": ["NA", "COM", "NC"],
+                "_note": "Same as v2."
+            },
+            "notes": "v3 is the current production version. Behavior identical to v2."
+        }
+    ]
+}

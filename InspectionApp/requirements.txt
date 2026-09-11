@@ -1,0 +1,57 @@
+# InspectionApp — Iris Web Server Requirements
+# Python 3.10+
+
+# Web framework
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# Production WSGI server — platform-specific:
+#   Linux / Raspberry Pi: gunicorn (requires os.fork()/fcntl — POSIX only)
+#   Windows: waitress (pure Python, no POSIX dependencies)
+# See setup/start_iris.sh (Linux) and setup/start_iris_win.py (Windows).
+gunicorn>=21.0.0; sys_platform != "win32"
+waitress>=3.0.0; sys_platform == "win32"
+
+# Computer vision and image processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+scipy>=1.11.0
+
+# ONNX runtime (PaDiM backbone feature extraction — calibration and inference)
+onnxruntime>=1.17.0
+
+# PaDiM calibration (sweep + Gaussian fit; not needed at inference time)
+scikit-learn>=1.3.0
+
+# Calibration graphs (score histograms, heatmaps — not needed at inference time)
+matplotlib>=3.7.0
+
+# scripts/offload_calibration.py (PC/laptop only — offloads the calibration
+# sweep from the Pi). All its Python deps are already covered above
+# (onnxruntime, numpy, scipy, scikit-learn, opencv-python, matplotlib) except:
+Pillow>=10.0.0
+
+# scripts/offload_calibration.py --gpu (optional, CUDA-capable PC only):
+# replaces onnxruntime above — do not install both.
+#   pip uninstall onnxruntime
+#   pip install onnxruntime-gpu>=1.17.0
+
+# scripts/export_backbones.py (one-time backbone export, PC/Jetson only —
+# NOT required on the Raspberry Pi, and not required to just RUN
+# offload_calibration.py if the .onnx backbones already exist):
+#   pip install torch torchvision onnx
+
+# Camera support (Raspberry Pi)
+picamera2>=0.3.0; platform_machine == "aarch64"
+
+# GPIO support (Raspberry Pi)
+gpiozero>=2.0.0; platform_machine == "aarch64"
+
+# TensorFlow Lite runtime (inference)
+# For Raspberry Pi / EdgeTPU:
+#   pip install https://github.com/google-coral/pycoral/releases/download/v2.0.0/tflite_runtime-2.5.0.post1-cp310-cp310-linux_aarch64.whl
+# For PC development:
+tensorflow>=2.13.0; platform_machine != "aarch64"
+
+# Canvas/builder frontend (already included in static/)
+# fabric.js 5.3.0 (manual download to iris/static/js/fabric.min.js)

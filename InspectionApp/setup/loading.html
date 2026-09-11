@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Loading Iris…</title>
+<style>
+  html, body {
+    height: 100%; margin: 0;
+    background: #1a1c1e;
+    color: #f4f5f7;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .box { text-align: center; }
+  .brand { font-size: 2.2rem; font-weight: 700; letter-spacing: .15em; color: #1d6fd8; }
+  .spinner {
+    margin: 1.5rem auto; width: 48px; height: 48px;
+    border: 5px solid #333; border-top-color: #1d6fd8;
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .msg { font-size: 1.1rem; color: #d0d5dd; }
+  .sub { font-size: .85rem; color: #6b7280; margin-top: .5rem; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="brand">IRIS</div>
+    <div class="spinner"></div>
+    <div class="msg">Loading Iris…</div>
+    <div class="sub" id="sub">Starting cameras and inspection service…</div>
+  </div>
+
+<script>
+  // Static file:// page opened by start_iris.sh before gunicorn/prewarm finish;
+  // polls the real server and hands off once it responds.
+  var params = new URLSearchParams(window.location.search);
+  var port = params.get("port") || "5000";
+  var targetUrl = "http://localhost:" + port + "/";
+  var infoUrl = "http://localhost:" + port + "/api/info";
+  var sub = document.getElementById("sub");
+  var elapsed = 0;
+
+  function poll() {
+    var ctrl = new AbortController();
+    var timeout = setTimeout(function () { ctrl.abort(); }, 1500);
+    fetch(infoUrl, { signal: ctrl.signal })
+      .then(function (resp) {
+        clearTimeout(timeout);
+        if (resp.ok) {
+          window.location.replace(targetUrl);
+        } else {
+          scheduleNext();
+        }
+      })
+      .catch(function () {
+        clearTimeout(timeout);
+        scheduleNext();
+      });
+  }
+
+  function scheduleNext() {
+    elapsed += 1;
+    sub.textContent = "Starting cameras and inspection service… (" + elapsed + "s)";
+    setTimeout(poll, 1000);
+  }
+
+  poll();
+</script>
+</body>
+</html>

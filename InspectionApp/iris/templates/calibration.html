@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+{% block title %}Calibration{% endblock %}
+
+{% block content %}
+<div class="cal-page">
+    <div class="cal-header">
+        <h1>Model Calibration</h1>
+        <p class="muted">Capture images, analyze views, then fit the model. The system selects the best configuration per view automatically.</p>
+        <div class="inspection-controls">
+            <div class="control-group">
+                <label class="ctrl-label">Sequence</label>
+                <select id="cal-seq-select" class="input-select input-select-sm">
+                    {% for seq in sequences %}
+                    <option value="{{ seq.path }}" {% if current_sequence and seq.filename==current_sequence %}selected{%
+                        endif %}>
+                        {{ seq.part_model }} — {{ seq.filename }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-ghost btn-sm" id="btn-cal-load-seq">Load</button>
+            </div>
+        </div>
+    </div>
+
+    {% if not has_sequence %}
+    <div class="alert alert-warning">No sequence loaded. <a href="{{ url_for('home') }}">Load a sequence</a> first.</div>
+    {% else %}
+
+    <!-- ── Step indicator ──────────────────────────────────────────────── -->
+    <div class="cal-steps">
+        <div class="cal-step" id="cal-step-1">
+            <span class="cal-step-num">1</span>
+            <span class="cal-step-label">Review Images</span>
+        </div>
+        <div class="cal-step-arrow">→</div>
+        <div class="cal-step" id="cal-step-2">
+            <span class="cal-step-num">2</span>
+            <span class="cal-step-label">Analyze</span>
+        </div>
+        <div class="cal-step-arrow">→</div>
+        <div class="cal-step" id="cal-step-3">
+            <span class="cal-step-num">3</span>
+            <span class="cal-step-label">Fit Model</span>
+        </div>
+    </div>
+
+    <!-- ── Step 1: Review ─────────────────────────────────────────────── -->
+    <section class="cal-section" id="section-capture">
+        <h2>Step 1 — Review Images</h2>
+        <p class="muted">Review captured images per view. Discard bad captures, or restore previously discarded ones. Capturing new images is done from the <a href="{{ url_for('inspection') }}">Inspection</a> page's Samples mode.</p>
+
+        <div class="cal-review-controls">
+            <div class="cal-preview-tabs" id="review-set-tabs">
+                <button class="cal-tab cal-tab-active" data-set="train_ok">Train OK (<span id="count-train-ok">—</span>)</button>
+                <button class="cal-tab" data-set="test_ok">Test OK (<span id="count-test-ok">—</span>)</button>
+                <button class="cal-tab" data-set="test_nok">Test NOK (<span id="count-test-nok">—</span>)</button>
+                <button class="cal-tab" data-set="discarded">Discarded (<span id="count-discarded">—</span>)</button>
+            </div>
+
+            <div class="review-selection-bar" id="review-selection-bar" style="display:none">
+                <span class="muted" id="review-selection-count"></span>
+                <button class="btn btn-danger btn-sm" id="btn-review-delete-selected">Delete Selected</button>
+                <button class="btn btn-ghost btn-sm" id="btn-review-cancel-selection">Cancel selection</button>
+            </div>
+
+            <div class="field-group review-view-group">
+                <label>View</label>
+                <select id="review-view-select" class="input-select input-select-sm">
+                    {% for group in view_sections %}
+                        {% for view_name in group.views %}
+                        <option value="{{ view_name }}">{{ view_name }}</option>
+                        {% endfor %}
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="field-group review-pagesize-group">
+                <label>Images per page</label>
+                <select id="review-page-size" class="input-select input-select-sm">
+                    <option value="10">10</option>
+                    <option value="20" selected>20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+
+            <button class="btn btn-secondary btn-sm" id="btn-view-production-nok">View Production NOK…</button>
+        </div>
+
+        <div class="gallery-grid review-gallery" id="review-gallery">
+            <p class="muted">No images.</p>
+        </div>
+
+        <div class="gallery-pagination" id="review-pagination" style="display:none">
+            <button class="btn btn-xs btn-ghost" id="btn-review-prev">← Prev</button>
+            <span id="review-page-info" class="muted"></span>
+            <button class="btn btn-xs btn-ghost" id="btn-review-next">Next →</button>
+        </div>
+    </section>
+
+    <!-- ── Step 2: Sweep ─────────────────────────────────────────────── -->
+    <section class="cal-section" id="section-sweep">
+        <h2>Step 2 — Analyze Views</h2>
+        <p class="muted">Tests all backbone configurations across all views. The best option per view is selected automatically.</p>
+
+        <div class="btn-group">
+            <button class="btn btn-primary" id="btn-run-sweep">Run Sweep</button>
+            <button class="btn btn-danger" id="btn-cancel-sweep" style="display:none">Cancel Sweep</button>
+        </div>
+
+        <!-- Panel shown when blocks are already known from a previous sweep -->
+        <div id="prev-config-notice" class="cal-prev-config" style="display:none">
+            <p class="cal-prev-config-title">✓ Previous configuration available</p>
+            <p class="muted" style="margin:.25rem 0 .5rem">The model can be re-fitted directly using the configuration from the last sweep.</p>
+            <div id="prev-config-blocks" class="prev-config-blocks-list"></div>
+            <button class="btn btn-secondary" id="btn-skip-sweep">Skip to Step 3 →</button>
+        </div>
+
+        <!-- Simplified per-view sweep summary -->
+        <div id="sweep-summary" style="display:none">
+            <div class="sweep-summary-list" id="sweep-summary-list"></div>
+            <button class="btn btn-xs btn-ghost" id="btn-toggle-details" style="margin-top:.5rem">
+                Show technical details ▼
+            </button>
+            <div id="sweep-details-panel" style="display:none">
+                <div id="sweep-results-table"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Step 3: Calibrate ─────────────────────────────────────────── -->
+    <section class="cal-section" id="section-calibrate">
+        <h2>Step 3 — Fit Model</h2>
+        <p class="muted">Fits the model for each view using the best configuration found in the sweep.</p>
+        <p id="cal-no-sweep-warning" class="cal-warning" style="display:none">
+            ⚠ Run the sweep first (Step 2) before fitting the model.
+        </p>
+
+        <div class="btn-group">
+            <button class="btn btn-primary" id="btn-run-calibration" disabled>Fit Model</button>
+            <button class="btn btn-secondary" id="btn-open-review">Recalibrate from Production…</button>
+        </div>
+
+        <!-- ── Current model evaluation ──────────────────────────────── -->
+        <div class="cal-eval-block" id="cal-eval-block" style="display:none">
+            <div class="cal-eval-header">
+                <span class="cal-eval-title">Current model evaluation</span>
+                <span class="cal-eval-ts muted" id="cal-eval-ts"></span>
+                <button class="btn btn-sm btn-ghost" id="btn-refresh-eval" title="Reload from disk">↻ Refresh</button>
+            </div>
+            <table class="cal-eval-table" id="cal-eval-table">
+                <thead>
+                    <tr>
+                        <th>View</th>
+                        <th>Block</th>
+                        <th>Sep ratio</th>
+                        <th>AUC</th>
+                        <th>Threshold min</th>
+                        <th>Threshold max</th>
+                    </tr>
+                </thead>
+                <tbody id="cal-eval-tbody"></tbody>
+            </table>
+            <p class="cal-eval-empty muted" id="cal-eval-empty" style="display:none">
+                No calibration evaluation on disk yet. Run <em>Fit Model</em> or <em>Recalibrate from Production</em> first.
+            </p>
+        </div>
+    </section>
+
+    <!-- ── Production review modal ───────────────────────────────────── -->
+    <div id="review-modal-overlay" class="modal-overlay" style="display:none">
+        <div class="modal-box modal-box-wide">
+            <div class="modal-header">
+                <h3>Recalibrate from Production</h3>
+                <button class="modal-close" id="btn-review-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="muted" style="margin-bottom:.75rem">
+                    Analyzes the traceability log for the selected date, identifies views
+                    with an elevated NOK rate, and lets you promote the rejected images as
+                    new training data before re-fitting the model.
+                    <strong>Only promote views you have confirmed are false positives.</strong>
+                </p>
+
+                <div class="review-date-row">
+                    <label for="review-date-input">Date</label>
+                    <input type="date" id="review-date-input" class="review-date-input">
+                    <button class="btn btn-secondary btn-sm" id="btn-review-analyze">Analyze</button>
+                </div>
+
+                <!-- Analysis results table -->
+                <div id="review-analysis-area" style="display:none">
+                    <div id="review-drift-banner" style="display:none" class="review-drift-banner"></div>
+                    <p id="review-summary-line" class="review-summary-line muted"></p>
+                    <table class="review-table">
+                        <thead>
+                            <tr>
+                                <th>Promote</th>
+                                <th>View</th>
+                                <th>NOK / Total</th>
+                                <th>NOK %</th>
+                                <th>Score range (NOK)</th>
+                                <th>Threshold max</th>
+                                <th>Images</th>
+                                <th>Pattern</th>
+                            </tr>
+                        </thead>
+                        <tbody id="review-table-body"></tbody>
+                    </table>
+                    <p id="review-no-nok-msg" class="muted" style="display:none;margin-top:.5rem">
+                        No NOK events found for this date.
+                    </p>
+                </div>
+
+                <p id="review-loading-msg" class="muted" style="display:none">Analyzing…</p>
+                <p id="review-error-msg" class="cal-error" style="display:none"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-review-cancel">Cancel</button>
+                <button class="btn btn-ghost btn-sm" id="btn-export-traceability" disabled
+                        title="Download traceability data for the selected date as TSV">
+                    ⬇ Export TSV
+                </button>
+                <button class="btn btn-secondary" id="btn-review-promote-only" disabled>
+                    Promote only
+                </button>
+                <button class="btn btn-primary" id="btn-review-promote" disabled>
+                    Promote &amp; Recalibrate
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Image gallery modal ───────────────────────────────────────── -->
+    <div id="gallery-modal-overlay" class="modal-overlay" style="display:none">
+        <div class="modal-box modal-box-wide">
+            <div class="modal-header">
+                <h3 id="gallery-modal-title">NOK Images</h3>
+                <button class="modal-close" id="btn-gallery-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="gallery-summary" class="muted" style="margin-bottom:.75rem"></p>
+                <p id="gallery-loading" class="muted" style="display:none">Loading images…</p>
+                <p id="gallery-error" class="cal-error" style="display:none"></p>
+                <div id="gallery-grid" class="gallery-grid"></div>
+                <div id="gallery-pagination" class="gallery-pagination" style="display:none">
+                    <button class="btn btn-secondary btn-sm" id="btn-gallery-prev">&#9664; Prev</button>
+                    <span id="gallery-page-label" class="muted"></span>
+                    <button class="btn btn-secondary btn-sm" id="btn-gallery-next">Next &#9654;</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span id="gallery-excluded-count" class="muted" style="flex:1;font-size:.85rem"></span>
+                <button class="btn btn-secondary" id="btn-gallery-done">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Lightbox ──────────────────────────────────────────────────── -->
+    <div id="lightbox-overlay" class="lightbox-overlay" style="display:none">
+        <button class="lightbox-nav lightbox-prev" id="btn-lightbox-prev">&#9664;</button>
+        <div class="lightbox-content">
+            <button class="modal-close lightbox-close" id="btn-lightbox-close">✕</button>
+            <img id="lightbox-img" src="" alt="">
+            <p id="lightbox-meta" class="lightbox-meta"></p>
+        </div>
+        <button class="lightbox-nav lightbox-next" id="btn-lightbox-next">&#9654;</button>
+    </div>
+
+    <!-- ── Step 1 review gallery lightbox (with move-to-set buttons) ──── -->
+    <div id="review-lightbox-overlay" class="lightbox-overlay" style="display:none">
+        <button class="lightbox-nav lightbox-prev" id="btn-review-lightbox-prev">&#9664;</button>
+        <div class="lightbox-content">
+            <button class="modal-close lightbox-close" id="btn-review-lightbox-close">✕</button>
+            <img id="review-lightbox-img" src="" alt="">
+            <p id="review-lightbox-meta" class="lightbox-meta"></p>
+            <div id="review-lightbox-actions" class="lightbox-actions"></div>
+        </div>
+        <button class="lightbox-nav lightbox-next" id="btn-review-lightbox-next">&#9654;</button>
+    </div>
+
+    <!-- ── Step 1 review gallery: delete-confirmation modal ───────────── -->
+    <div id="review-delete-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Delete image(s)?</h3>
+                <button class="modal-close" id="btn-review-delete-cancel">✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="review-delete-modal-text"></p>
+                <p class="muted" style="font-size:.82rem">This cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="btn-review-delete-modal-cancel">Cancel</button>
+                <button class="btn btn-danger" id="btn-review-delete-confirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Production NOK viewer (Step 1) ──────────────────────────────
+         Browses NOK inference images for one view across ALL dates (no
+         date picker, unlike "Recalibrate from Production"). Lets the
+         operator delete images no longer needed, to free up disk space —
+         distinct purpose from that modal's promote-to-training flow. ──── -->
+    <div id="nok-viewer-modal-overlay" class="modal-overlay" style="display:none">
+        <div class="modal-box modal-box-wide">
+            <div class="modal-header">
+                <h3>View Production NOK Images</h3>
+                <button class="modal-close" id="btn-nok-viewer-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="muted" style="margin-bottom:.75rem">
+                    NOK inference images captured during normal production, across every
+                    recorded date. Select images and delete them once they are no longer
+                    needed on the Pi.
+                </p>
+
+                <div class="field-group review-view-group">
+                    <label>View</label>
+                    <select id="nok-viewer-view-select" class="input-select input-select-sm">
+                        {% for group in view_sections %}
+                            {% for view_name in group.views %}
+                            <option value="{{ view_name }}">{{ view_name }}</option>
+                            {% endfor %}
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="review-selection-bar" id="nok-viewer-selection-bar" style="display:none">
+                    <span class="muted" id="nok-viewer-selection-count"></span>
+                    <button class="btn btn-danger btn-sm" id="btn-nok-viewer-delete-selected">Delete Selected</button>
+                    <button class="btn btn-ghost btn-sm" id="btn-nok-viewer-cancel-selection">Cancel selection</button>
+                </div>
+
+                <div class="gallery-grid review-gallery" id="nok-viewer-gallery">
+                    <p class="muted">Loading…</p>
+                </div>
+
+                <div class="gallery-pagination" id="nok-viewer-pagination" style="display:none">
+                    <button class="btn btn-xs btn-ghost" id="btn-nok-viewer-prev">← Prev</button>
+                    <span id="nok-viewer-page-info" class="muted"></span>
+                    <button class="btn btn-xs btn-ghost" id="btn-nok-viewer-next">Next →</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-nok-viewer-done">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Production NOK viewer: lightbox (Delete action only) ────────── -->
+    <div id="nok-viewer-lightbox-overlay" class="lightbox-overlay" style="display:none">
+        <button class="lightbox-nav lightbox-prev" id="btn-nok-viewer-lightbox-prev">&#9664;</button>
+        <div class="lightbox-content">
+            <button class="modal-close lightbox-close" id="btn-nok-viewer-lightbox-close">✕</button>
+            <img id="nok-viewer-lightbox-img" src="" alt="">
+            <p id="nok-viewer-lightbox-meta" class="lightbox-meta"></p>
+            <div id="nok-viewer-lightbox-actions" class="lightbox-actions"></div>
+        </div>
+        <button class="lightbox-nav lightbox-next" id="btn-nok-viewer-lightbox-next">&#9654;</button>
+    </div>
+
+    <!-- ── Production NOK viewer: delete-confirmation modal ────────────── -->
+    <div id="nok-viewer-delete-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Delete image(s)?</h3>
+                <button class="modal-close" id="btn-nok-viewer-delete-cancel">✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="nok-viewer-delete-modal-text"></p>
+                <p class="muted" style="font-size:.82rem">This cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="btn-nok-viewer-delete-modal-cancel">Cancel</button>
+                <button class="btn btn-danger" id="btn-nok-viewer-delete-confirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Progress bar ──────────────────────────────────────────────── -->
+
+    <div id="cal-progress-container" class="cal-progress-container" style="display:none">
+        <div class="cal-progress-header">
+            <strong id="cal-progress-label">Running…</strong>
+            <span id="cal-progress-fraction" class="muted"></span>
+        </div>
+        <div class="cal-progress-bar-track">
+            <div class="cal-progress-bar-fill" id="cal-progress-bar-fill"></div>
+        </div>
+        <p id="cal-progress-message" class="muted cal-progress-message"></p>
+        <p id="cal-progress-error" class="cal-error" style="display:none"></p>
+    </div>
+
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<script defer src="{{ url_for('static', filename='js/calibration.js') }}"></script>
+{% endblock %}

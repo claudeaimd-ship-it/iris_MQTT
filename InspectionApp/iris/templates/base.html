@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Iris{% endblock %} — Vision Inspection System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/iris.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <header class="topbar">
+        <span class="topbar-brand">IRIS</span>
+        <nav class="topbar-nav">
+            <a href="{{ url_for('home', manage=1) }}" class="nav-link {% if request.endpoint == 'home' %}active{% endif %}">Home</a>
+            <a href="{{ url_for('inspection') }}" class="nav-link {% if request.endpoint == 'inspection' %}active{% endif %}">Inspection</a>
+            <a href="{{ url_for('calibration') }}" class="nav-link {% if request.endpoint == 'calibration' %}active{% endif %}">Calibration</a>
+            <a href="{{ url_for('setup') }}" class="nav-link {% if request.endpoint in ('setup', 'builder') %}active{% endif %}">New Sequence</a>
+        </nav>
+        <span class="topbar-status" id="topbar-status">●</span>
+        <button class="btn-estop" id="btn-estop" disabled title="Emergency Stop — stop inspection or capture loop">⏹ STOP</button>
+        <button class="topbar-restart" id="btn-restart-iris" title="Restart the Iris web service (recovers automatically in a few seconds)">⟳ Restart Iris</button>
+    </header>
+
+    <div class="modal-overlay" id="restart-iris-modal" style="display:none">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Restart Iris</h3>
+                <button type="button" class="modal-close" id="btn-restart-iris-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="muted">
+                    Restarts the Iris web service. It comes back up automatically
+                    within a few seconds &mdash; no need to touch the Raspberry Pi.
+                    The inspection/samples loop must be stopped first.
+                </p>
+                <div class="field-group">
+                    <label for="restart-iris-pin">PIN</label>
+                    <input type="password" id="restart-iris-pin" inputmode="numeric" maxlength="8" placeholder="Enter PIN">
+                </div>
+                <p class="alert alert-error" id="restart-iris-error" style="display:none"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="btn-restart-iris-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="btn-restart-iris-confirm">Restart</button>
+            </div>
+        </div>
+    </div>
+
+    <main class="page-content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+
+        {% if request.endpoint != 'inspection' %}
+        <footer class="iris-footer">
+            Iris Vision Inspection System &mdash; Alan Rojas &bull; Team MDA &amp; DA, Johnson Electric, Zacatecas, M&eacute;xico
+        </footer>
+        {% endif %}
+    </main>
+
+    <script>
+        // Keep topbar status dot updated every 3 s.
+        // Enable/disable the emergency stop button based on running state.
+        (function () {
+            const dot   = document.getElementById("topbar-status");
+            const eStop = document.getElementById("btn-estop");
+
+            function poll() {
+                fetch("/api/status")
+                    .then(r => r.json())
+                    .then(d => {
+                        dot.textContent = "●";
+                        dot.className = "topbar-status " + (d.running ? "status-running" : "status-idle");
+                        dot.title = d.running
+                            ? `Running — ${d.mode} — cycle ${d.cycle_count}`
+                            : `Idle — ${d.mode || "no sequence"}`;
+                        eStop.disabled = !d.running;
+                    })
+                    .catch(() => {
+                        dot.className = "topbar-status status-error";
+                        dot.title = "Server unreachable";
+                        eStop.disabled = true;
+                    });
+            }
+
+            eStop.addEventListener("click", function () {
+                eStop.disabled = true;
+                eStop.textContent = "Stopping…";
+                fetch("/api/stop", { method: "POST" })
+                    .then(() => poll())
+                    .catch(() => poll())
+                    .finally(() => { eStop.textContent = "⏹ STOP"; });
+            });
+
+            poll();
+            setInterval(poll, 3000);
+        })();
+
+        // ── Restart Iris (topbar button — always reachable, unlike Home which
+        // redirects to /inspection once any sequence exists) ────────────────
+        (function () {
+            const modal     = document.getElementById("restart-iris-modal");
+            const pinInput  = document.getElementById("restart-iris-pin");
+            const errorEl   = document.getElementById("restart-iris-error");
+            const openBtn   = document.getElementById("btn-restart-iris");
+            const confirmBtn = document.getElementById("btn-restart-iris-confirm");
+
+            function openModal() {
+                pinInput.value = "";
+                errorEl.style.display = "none";
+                modal.style.display = "flex";
+            }
+
+            function closeModal() {
+                modal.style.display = "none";
+            }
+
+            openBtn.addEventListener("click", openModal);
+            document.getElementById("btn-restart-iris-cancel").addEventListener("click", closeModal);
+            document.getElementById("btn-restart-iris-close").addEventListener("click", closeModal);
+            modal.addEventListener("click", function (e) {
+                if (e.target === modal) closeModal();
+            });
+
+            confirmBtn.addEventListener("click", function () {
+                confirmBtn.disabled = true;
+                fetch("/api/system/restart_iris", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pin: pinInput.value }),
+                })
+                .then(r => r.json().then(d => ({ ok: r.ok, body: d })))
+                .then(({ ok, body }) => {
+                    if (!ok) {
+                        errorEl.textContent = body.error || "Could not restart Iris.";
+                        errorEl.style.display = "block";
+                        confirmBtn.disabled = false;
+                        return;
+                    }
+                    // The process is about to exit; systemd brings it back within a
+                    // few seconds (setup/iris.service, Restart=on-failure). Poll
+                    // until it responds again, then reload automatically.
+                    closeModal();
+                    const overlay = document.createElement("div");
+                    overlay.className = "modal-overlay";
+                    overlay.style.display = "flex";
+                    overlay.innerHTML = '<div class="modal-box"><div class="modal-body">' +
+                        '<p>Restarting Iris&hellip; the page will reload automatically.</p></div></div>';
+                    document.body.appendChild(overlay);
+
+                    const waitForRestart = setInterval(function () {
+                        fetch("/api/info").then(r => {
+                            if (r.ok) {
+                                clearInterval(waitForRestart);
+                                window.location.reload();
+                            }
+                        }).catch(() => { /* still restarting, keep polling */ });
+                    }, 1500);
+                })
+                .catch(() => {
+                    errorEl.textContent = "Could not reach Iris. It may already be restarting.";
+                    errorEl.style.display = "block";
+                    confirmBtn.disabled = false;
+                });
+            });
+        })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

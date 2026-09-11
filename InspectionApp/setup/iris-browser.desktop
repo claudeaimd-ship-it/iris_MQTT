@@ -1,0 +1,10 @@
+# Exec resolves $HOME at run time via `bash -c` (runs in the logged-in
+# user's own session) — no per-Pi/per-username editing needed. Assumes
+# InspectionApp lives at (or is symlinked from) $HOME/Desktop/InspectionApp.
+[Desktop Entry]
+Type=Application
+Name=Iris — Vision Inspection
+Comment=Start Iris server and open the operator interface
+Exec=bash -c "$HOME/Desktop/InspectionApp/setup/start_iris.sh"
+Terminal=false
+X-GNOME-Autostart-enabled=true

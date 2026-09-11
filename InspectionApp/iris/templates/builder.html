@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}Builder{% endblock %}
+{% block head_extra %}
+<!-- Fabric.js: stored locally so the system works without internet -->
+<script src="{{ url_for('static', filename='js/fabric.min.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="builder-page">
+    <div class="builder-header">
+        <div class="builder-header-title">
+            <h1>Sequence Builder</h1>
+            {% if draft.get('_edit_path') %}
+            <span class="builder-edit-badge">Editing: {{ draft._edit_path.split('/')[-1] }}</span>
+            {% elif draft.get('_cloned_from') %}
+            <span class="builder-edit-badge">Cloned from: {{ draft._cloned_from }} &mdash; will be saved as a new sequence</span>
+            {% endif %}
+        </div>
+        <div class="builder-header-actions">
+            <button class="btn btn-ghost" id="btn-hardware-settings">⚙️ Hardware Settings</button>
+            <button class="btn btn-ghost" id="btn-validate">Validate</button>
+            <button class="btn btn-primary" id="btn-save-sequence">Save Sequence &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Validation messages -->
+    <div id="validation-banner" class="validation-banner hidden"></div>
+
+    <div class="builder-layout">
+
+        <!-- ── Left panel: Section + Steps tree ────────────────────────── -->
+        <aside class="builder-panel-left">
+            <div class="panel-section">
+                <div class="panel-header">
+                    <span>Sections</span>
+                    <button class="btn-icon" id="btn-add-section" title="Add section">＋</button>
+                </div>
+                <div id="section-tabs" class="tab-list"></div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-header">
+                    <span>Sequence Steps</span>
+                    <button class="btn-icon" id="btn-add-step" title="Add step">＋</button>
+                </div>
+                <div id="steps-tree" class="steps-tree"></div>
+                <div class="inference-reminder hidden" id="inference-reminder">
+                    ⚠ Add an inference step (number ≥ 1001) and a NOK dispatch step
+                    (negative number).
+                </div>
+            </div>
+        </aside>
+
+        <!-- ── Centre: Camera previews + canvas overlay ────────────────── -->
+        <section class="builder-center">
+            <div class="capture-toolbar">
+                <span class="capture-label" id="capture-section-label">Section 1</span>
+                <button class="btn btn-secondary" id="btn-capture">📷 Update Preview</button>
+                <button class="btn btn-secondary" id="btn-load-ref" title="Load a local image as background for the selected camera (use when the line is stopped)">📂 Reference image</button>
+                <input type="file" id="ref-img-input" accept="image/*" style="display:none">
+                <span class="capture-status muted" id="capture-status"></span>
+            </div>
+
+            <div id="camera-grid" class="camera-grid">
+                <!-- Canvas cards are created by builder.js based on hardware.camera_port -->
+            </div>
+
+            <!-- Tool palette shown below the selected canvas -->
+            <div class="tool-palette" id="tool-palette">
+                <span class="tool-palette-title">Active camera: <strong id="active-camera-label">—</strong></span>
+
+                <div style="display: flex; gap: 2rem; align-items: stretch; margin-top: 0.5rem;">
+
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div class="tool-buttons">
+                            <button class="tool-btn" data-tool="roi" title="Region of Interest (rectangle)">ROI</button>
+                            <button class="tool-btn" data-tool="circle" title="Black circle mask">⬤ Circle</button>
+                            <button class="tool-btn" data-tool="rect" title="Black rectangle mask">▬ Rectangle</button>
+                            <button class="tool-btn" data-tool="detection_roi"
+                                title="Detection ROI — defines detect_piece_action area" style="color:#ff8c00">▧
+                                Detection ROI</button>
+                            <button class="tool-btn" data-tool="select" title="Select / move objects">⬡ Select</button>
+                            <button class="tool-btn btn-danger" data-tool="delete" title="Delete selected">✕
+                                Delete</button>
+                        </div>
+                        <div id="tool-params" class="tool-params">
+                        </div>
+                        <div>
+                            <button class="btn btn-secondary btn-sm" id="btn-apply-pipeline">Apply to pipeline</button>
+                        </div>
+                    </div>
+
+                    <div id="spotlights-container" class="hidden"
+                        style="border-left: 2px solid #e2e8f0; padding-left: 2rem;">
+                        <span class="tool-palette-title"
+                            style="display:block; margin-bottom: 0.5rem; color: #64748b;">Hardware Control</span>
+                        <div id="spotlights-buttons" class="tool-buttons"
+                            style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- ── Right panel: Pipeline list for active camera/section ─────── -->
+        <aside class="builder-panel-right">
+            <div class="panel-header">
+                <span>Pipeline</span>
+                <span class="muted panel-subheader" id="pipeline-camera-label">select a camera</span>
+            </div>
+            <ol id="pipeline-list" class="pipeline-list">
+                <li class="pipeline-empty muted">No tools yet.</li>
+            </ol>
+
+            <div class="panel-section" style="margin-top:1rem">
+                <div class="panel-header"><span>Inference type</span></div>
+                <div class="field-group">
+                    <label for="inference-type-select">Decision mode</label>
+                    <select id="inference-type-select">
+                        <option value="standard">Standard</option>
+                        <option value="presence_detection_absence_calibrated">
+                            Presence detection (absence-calibrated, invert OK/NOK)
+                        </option>
+                    </select>
+                    <small class="muted">
+                        Presence detection calibrates on the ABSENT feature —
+                        an anomaly means the feature is present (OK), matching
+                        the baseline means it is absent (NOK).
+                    </small>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="btn-add-inference-type">
+                    Add to pipeline
+                </button>
+            </div>
+
+            <div class="panel-section" style="margin-top:1rem">
+                <div class="panel-header"><span>Camera settings</span></div>
+                <div class="field-group">
+                    <label for="cam-exposure">Exposure time (µs)</label>
+                    <input type="number" id="cam-exposure" value="0" min="0">
+                    <small class="muted">0 = auto</small>
+                </div>
+                <div class="field-group">
+                    <label for="cam-lens">Lens position</label>
+                    <input type="number" id="cam-lens" value="0.0" step="0.1" min="0">
+                    <small class="muted">Ignored for fixed-focus cameras.</small>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="btn-add-cam-settings">
+                    Add to pipeline
+                </button>
+            </div>
+
+            <div class="panel-section" id="section-resize" style="margin-top:1rem">
+                <div class="panel-header"><span>Resize (required)</span></div>
+                <div class="field-row">
+                    <div class="field-group">
+                        <label for="resize-w">W (px)</label>
+                        <input type="number" id="resize-w" value="525" min="32" max="4608">
+                    </div>
+                    <div class="field-group">
+                        <label for="resize-h">H (px)</label>
+                        <input type="number" id="resize-h" value="525" min="32" max="2592">
+                    </div>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="btn-add-resize">
+                    Add resize to pipeline
+                </button>
+            </div>
+        </aside>
+
+    </div><!-- .builder-layout -->
+
+    <!-- Step editor modal -->
+    <div class="modal-overlay hidden" id="step-modal">
+        <div class="modal">
+            <h3 id="step-modal-title">Add Step</h3>
+
+            <div class="field-group">
+                <label>Step number</label>
+                <input type="number" id="step-num" value="2">
+                <small class="muted">
+                    0–999 = normal GPIO/camera step &nbsp;|&nbsp;
+                    ≥ 1001 = inference step &nbsp;|&nbsp;
+                    negative = NOK dispatch
+                </small>
+            </div>
+            <div class="field-group">
+                <label>Description</label>
+                <input type="text" id="step-desc" placeholder="e.g. Turn on spotlights">
+            </div>
+
+            <div class="field-group">
+                <label>Step type</label>
+                <select id="step-type" onchange="renderStepFields()">
+                    <option value="gpio">GPIO action</option>
+                    <option value="camera">Camera capture</option>
+                    <option value="detect_piece">Detect Piece</option>
+                    <option value="wait_for_piece">Wait for Piece (visual trigger)</option>
+                    <option value="inference">Inference</option>
+                    <option value="nok">NOK dispatch</option>
+                </select>
+            </div>
+
+            <div id="step-type-fields"><!-- injected by JS --></div>
+
+            <div class="btn-row">
+                <button type="button" class="btn btn-ghost" onclick="closeStepModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-save-step">Save Step</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="hardware-modal">
+        <div class="modal modal-wide">
+            <h3>Hardware Settings</h3>
+            <p class="muted" style="font-size: 0.85rem; margin-bottom: 1rem;">
+                Modify electrical and capture parameters. Camera topology and IO module
+                cannot be altered here to protect sequence structure.
+            </p>
+
+            <div id="hw-no-gpio-note" class="muted hidden" style="margin-bottom: 1rem;">
+                This device does not use a GPIO IO module.
+            </div>
+
+            <div id="hw-gpio-section" class="hidden">
+                <h4 style="margin-bottom:8px">Input pins (IN)</h4>
+                <table class="gpio-table" id="hw-input-pins-table">
+                    <thead>
+                        <tr>
+                            <th>Input on module</th>
+                            <th>Physical pin</th>
+                            <th>BCM</th>
+                            <th>Description</th>
+                            <th>Is trigger</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="hw-input-pins-body"></tbody>
+                </table>
+                <div class="btn-row" style="margin-top:8px">
+                    <button type="button" class="btn btn-ghost btn-sm"
+                            onclick="gpioPinsAddCustomRow('input', 'hw-input-pins-body')">
+                        + Add custom pin
+                    </button>
+                </div>
+
+                <h4 style="margin-top:20px;margin-bottom:8px">Output pins (OUT)</h4>
+                <table class="gpio-table" id="hw-output-pins-table">
+                    <thead>
+                        <tr>
+                            <th>Output on module</th>
+                            <th>Physical pin</th>
+                            <th>BCM</th>
+                            <th>Description</th>
+                            <th>Use</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="hw-output-pins-body"></tbody>
+                </table>
+                <div class="btn-row" style="margin-top:8px">
+                    <button type="button" class="btn btn-ghost btn-sm"
+                            onclick="gpioPinsAddCustomRow('output', 'hw-output-pins-body')">
+                        + Add custom pin
+                    </button>
+                </div>
+            </div>
+
+            <div class="field-row" style="margin-top: 1.5rem;">
+                <div class="field-group">
+                    <label>Capture Width (px)</label>
+                    <input type="number" id="hw-capture-w" min="32">
+                </div>
+                <div class="field-group">
+                    <label>Capture Height (px)</label>
+                    <input type="number" id="hw-capture-h" min="32">
+                </div>
+            </div>
+
+            <div class="btn-row" style="margin-top: 1.5rem;">
+                <button type="button" class="btn btn-ghost" id="btn-close-hardware">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-save-hardware">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+</div><!-- .builder-page -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const DRAFT      = {{ draft | tojson }};
+    const IO_CATALOG = {{ io_catalog | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/gpio_pins.js') }}"></script>
+<script src="{{ url_for('static', filename='js/canvas_tools.js') }}"></script>
+<script src="{{ url_for('static', filename='js/builder.js') }}"></script>
+{% endblock %}

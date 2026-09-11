@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+{% block title %}Setup — New Sequence{% endblock %}
+
+{% block content %}
+<div class="setup-page">
+    <h1>New Sequence Setup</h1>
+    <p class="muted">Complete all steps to configure the hardware for a new product model.</p>
+
+    <!-- Step progress indicator -->
+    <div class="steps-indicator" id="steps-indicator">
+        <div class="step-dot active" data-step="1">1<span>Device</span></div>
+        <div class="step-connector"></div>
+        <div class="step-dot" data-step="2">2<span>Cameras</span></div>
+        <div class="step-connector" id="connector-2-3"></div>
+        <div class="step-dot" data-step="3" id="step-dot-3">3<span>GPIO</span></div>
+    </div>
+
+    <form id="setup-form" autocomplete="off">
+
+        <!-- ── Step 1: Device & Model ────────────────────────────────────── -->
+        <section class="setup-step active" id="step-1">
+            <h2>Step 1 — Device &amp; Product</h2>
+
+            <div class="field-group">
+                <label for="part_model">Product model name <span class="required">*</span></label>
+                <input type="text" id="part_model" name="part_model"
+                       placeholder="e.g. nissan_shroud"
+                       value="{{ draft.get('part_model', '') }}" required>
+                <small id="part-model-hint">Used in all traceability records. No spaces — use underscores.</small>
+                <small id="part-model-error" class="error-hint" style="display:none;color:#d32f2f"></small>
+            </div>
+
+            <div class="field-group">
+                <label for="device_type">Device <span class="required">*</span></label>
+                <select id="device_type" name="device_type" onchange="onDeviceChange()">
+                    {% for dev in device_catalog.devices %}
+                    <option value="{{ dev.device_type }}"
+                            data-supports-gpio="{{ dev.supports_gpio | lower }}"
+                            data-camera-types="{{ dev.supported_camera_types | join(',') }}"
+                            data-inference-devices="{{ dev.supported_inference_devices | join('|') }}"
+                            data-max-cameras="{{ dev.max_cameras }}"
+                            {% if draft.get('hardware', {}).get('device_type') == dev.device_type %}selected{% endif %}>
+                        {{ dev.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="field-group">
+                <label for="inference_device">Inference accelerator</label>
+                <select id="inference_device" name="inference_device">
+                    <!-- populated by onDeviceChange() -->
+                </select>
+            </div>
+
+            <div class="field-group" id="io-module-group">
+                <label for="io_module">IO module <span class="required">*</span></label>
+                <select id="io_module" name="io_module" onchange="onIoModuleChange()">
+                    {% for module in io_catalog.modules %}
+                    <option value="{{ module.name }}"
+                            {% if draft.get('hardware', {}).get('io_module') == module.name %}selected{% endif %}>
+                        {{ module.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="muted" id="io-module-note"></small>
+            </div>
+
+            <div class="btn-row">
+                <button type="button" class="btn btn-primary" onclick="step1Next()">Next →</button>
+            </div>
+        </section>
+
+        <!-- ── Step 2: Cameras ───────────────────────────────────────────── -->
+        <section class="setup-step" id="step-2">
+            <h2>Step 2 — Cameras</h2>
+
+            <div class="field-group">
+                <label for="camera_type">Connection type</label>
+                <select id="camera_type" name="camera_type"
+                        onchange="updateCameraModels(); updateResolutionPresets(); updateCameraIndexVisibility()">
+                    <!-- populated by onDeviceChange() -->
+                </select>
+            </div>
+
+            <div class="field-group" id="camera-index-group" style="display:none">
+                <label for="camera_index">Camera device index</label>
+                <input type="number" id="camera_index" name="camera_index"
+                       value="0" min="0" max="10">
+                <small class="muted">OpenCV device index. Run <code>python3 -c "import cv2; [print(i, cv2.VideoCapture(i).isOpened()) for i in range(5)]"</code> to find it.</small>
+            </div>
+
+            <div class="field-group">
+                <label for="camera_model">Camera model</label>
+                <select id="camera_model" name="camera_model"
+                        onchange="updateResolutionPresets()">
+                    <!-- populated by updateCameraModels() -->
+                </select>
+            </div>
+
+            <div class="field-group">
+                <label for="number_of_cameras">Number of cameras <span class="required">*</span></label>
+                <select id="number_of_cameras" name="number_of_cameras" onchange="updateCameraPorts()">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                </select>
+            </div>
+
+            <div class="field-group">
+                <label>Camera ports</label>
+                <div id="camera-ports-display" class="tag-list"></div>
+                <small class="muted">Ports are assigned automatically (A, B, C, D).</small>
+            </div>
+
+            <div class="field-group">
+                <label for="capture_resolution_preset">Capture resolution</label>
+                <select id="capture_resolution_preset" name="capture_resolution_preset">
+                    <!-- populated by updateResolutionPresets() -->
+                </select>
+                <small id="resolution-note" class="muted"></small>
+            </div>
+
+            <div class="field-group">
+                <label for="preview_exposure">Preview exposure (µs)</label>
+                <input type="number" id="preview_exposure" name="preview_exposure"
+                       value="0" min="0">
+                <small class="muted">0 = auto-exposure</small>
+            </div>
+
+            <div class="btn-row">
+                <button type="button" class="btn btn-ghost" onclick="goToStep(1)">← Back</button>
+                <button type="button" class="btn btn-primary" id="btn-step2-next" onclick="step2Next()">Next →</button>
+            </div>
+        </section>
+
+        <!-- ── Step 3: GPIO (RPi / Jetson only) ─────────────────────────── -->
+        <section class="setup-step" id="step-3">
+            <h2>Step 3 — GPIO Configuration</h2>
+            <p class="muted">
+                Available pins depend on the IO module selected in step 1.
+                Mark as <strong>trigger</strong> the input pins that the PLC will use
+                to start the inspection cycle. For output pins, indicate whether they are
+                PLC signals or spotlight control.
+            </p>
+
+            <!-- ── Input pins ─────────────────────────────────────────────── -->
+            <h3 style="margin-bottom:8px">Input pins (IN)</h3>
+            <p class="muted" style="margin-bottom:10px">
+                Physical pins from the IO module connector → RPi. Each pin can act as
+                a trigger signal (<em>trigger</em>) sent by the PLC or robot.
+            </p>
+            <table class="gpio-table" id="input-pins-table">
+                <thead>
+                    <tr>
+                        <th>Input on module</th>
+                        <th>Physical pin</th>
+                        <th>BCM</th>
+                        <th>Description</th>
+                        <th>Is trigger</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="input-pins-body">
+                    <!-- populated by onIoModuleChange() -->
+                </tbody>
+            </table>
+            <div class="btn-row" style="margin-top:8px">
+                <button type="button" class="btn btn-ghost btn-sm"
+                        onclick="gpioPinsAddCustomRow('input', 'input-pins-body')">
+                    + Add custom pin
+                </button>
+            </div>
+            <small class="muted" id="trigger-hint">
+                Mark at least one input pin as trigger (cycle start signal).
+            </small>
+
+            <!-- ── Output pins ────────────────────────────────────────────── -->
+            <h3 style="margin-top:24px;margin-bottom:8px">Output pins (OUT)</h3>
+            <p class="muted" style="margin-bottom:10px">
+                Physical pins RPi → IO module connector. Indicate the use of each pin:
+                <strong>PLC Signal</strong> to send OK/NOK to the robot, or
+                <strong>Spotlight</strong> to turn lighting on/off.
+                Unused pins can be left as "Not used".
+            </p>
+            <table class="gpio-table" id="output-pins-table">
+                <thead>
+                    <tr>
+                        <th>Output on module</th>
+                        <th>Physical pin</th>
+                        <th>BCM</th>
+                        <th>Description</th>
+                        <th>Use</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="output-pins-body">
+                    <!-- populated by onIoModuleChange() -->
+                </tbody>
+            </table>
+            <div class="btn-row" style="margin-top:8px">
+                <button type="button" class="btn btn-ghost btn-sm"
+                        onclick="gpioPinsAddCustomRow('output', 'output-pins-body')">
+                    + Add custom pin
+                </button>
+            </div>
+
+            <div id="setup-error" class="alert alert-error hidden" style="margin-top:16px"></div>
+
+            <div class="btn-row" style="margin-top:24px">
+                <button type="button" class="btn btn-ghost" onclick="goToStep(2)">← Back</button>
+                <button type="button" class="btn btn-primary" id="btn-finalize">
+                    Save &amp; Open Builder →
+                </button>
+            </div>
+        </section>
+
+
+
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/gpio_pins.js') }}"></script>
+<script>
+// ── Catalog data injected from server ───────────────────────────────────────
+const CAMERA_CATALOG = {{ camera_catalog | tojson }};
+const IO_CATALOG     = {{ io_catalog | tojson }};
+const DEVICE_CATALOG = {{ device_catalog | tojson }};
+const DRAFT          = {{ draft | tojson }};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function getSelectedDevice() {
+    const val = document.getElementById("device_type").value;
+    return DEVICE_CATALOG.devices.find(d => d.device_type === val) || null;
+}
+function getSelectedModule() {
+    const sel = document.getElementById("io_module");
+    if (!sel) return null;
+    return IO_CATALOG.modules.find(m => m.name === sel.value) || null;
+}
+
+// ── Step navigation ──────────────────────────────────────────────────────────
+function goToStep(n) {
+    document.querySelectorAll(".setup-step").forEach(el => el.classList.remove("active"));
+    document.getElementById("step-" + n).classList.add("active");
+    document.querySelectorAll(".step-dot").forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle("active", s === n);
+        el.classList.toggle("done",   s < n);
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function step1Next() { goToStep(2); }
+
+function step2Next() {
+    const dev = getSelectedDevice();
+    if (dev && !dev.supports_gpio) {
+        // No GPIO step for PC/Jetson → finalize directly
+        finalizeSetup();
+    } else {
+        goToStep(3);
+    }
+}
+
+// ── Device change ────────────────────────────────────────────────────────────
+function onDeviceChange() {
+    const dev = getSelectedDevice();
+    if (!dev) return;
+
+    // Inference device options
+    const infSel = document.getElementById("inference_device");
+    infSel.innerHTML = dev.supported_inference_devices.map(d =>
+        `<option value="${d}">${d}</option>`
+    ).join("");
+
+    // IO module visibility (only for GPIO-capable devices)
+    const ioGroup = document.getElementById("io-module-group");
+    ioGroup.style.display = dev.supports_gpio ? "" : "none";
+
+    // Step-3 indicator: dim when GPIO not supported
+    document.getElementById("step-dot-3").style.opacity  = dev.supports_gpio ? "" : "0.3";
+    document.getElementById("connector-2-3").style.opacity = dev.supports_gpio ? "" : "0.3";
+
+    // Camera type selector: only options supported by this device
+    const camTypeSel = document.getElementById("camera_type");
+    camTypeSel.innerHTML = dev.supported_camera_types.map(t =>
+        `<option value="${t}">${t === "CSI" ? "CSI (RPi ribbon cable)" : t}</option>`
+    ).join("");
+    camTypeSel.disabled = dev.supported_camera_types.length === 1;
+
+    // Rebuild dependent selects
+    updateCameraModels();
+    updateCameraPorts();
+    updateResolutionPresets();
+    updateCameraIndexVisibility();
+}
+
+// ── Camera index visibility ──────────────────────────────────────────────────
+function updateCameraIndexVisibility() {
+    const type = document.getElementById("camera_type").value;
+    document.getElementById("camera-index-group").style.display =
+        (type !== "CSI") ? "" : "none";
+}
+
+// ── Camera model list by connection type ─────────────────────────────────────
+function updateCameraModels() {
+    const type   = document.getElementById("camera_type").value;
+    const models = CAMERA_CATALOG[type] || [];
+    const sel    = document.getElementById("camera_model");
+    sel.innerHTML = models.map(m =>
+        `<option value="${m.name}" data-af="${m.supports_af_motor}">${m.name} (${m.sensor})</option>`
+    ).join("");
+    updateResolutionPresets();
+}
+
+// ── Camera ports display ──────────────────────────────────────────────────────
+function updateCameraPorts() {
+    const dev    = getSelectedDevice();
+    const maxCam = dev ? dev.max_cameras : 4;
+    const nSel   = document.getElementById("number_of_cameras");
+    Array.from(nSel.options).forEach(opt => {
+        opt.disabled = parseInt(opt.value) > maxCam;
+    });
+    if (parseInt(nSel.value) > maxCam) nSel.value = String(maxCam);
+    const n     = parseInt(nSel.value);
+    const ports = ["A", "B", "C", "D"].slice(0, n);
+    document.getElementById("camera-ports-display").innerHTML =
+        ports.map(p => `<span class="tag">${p}</span>`).join("");
+}
+
+// ── Resolution presets ────────────────────────────────────────────────────────
+function updateResolutionPresets() {
+    const type   = document.getElementById("camera_type").value;
+    const name   = document.getElementById("camera_model").value;
+    const models = CAMERA_CATALOG[type] || [];
+    const cam    = models.find(m => m.name === name);
+    const sel    = document.getElementById("capture_resolution_preset");
+    const note   = document.getElementById("resolution-note");
+
+    if (!cam || !cam.resolutions) {
+        sel.innerHTML = `<option value="1920,1080">High — 1920 × 1080</option>
+                         <option value="1280,720">Medium — 1280 × 720</option>
+                         <option value="640,480">Low — 640 × 480</option>`;
+        note.textContent = "";
+        return;
+    }
+    const r = cam.resolutions;
+    sel.innerHTML = [
+        `<option value="${r.high.width},${r.high.height}">High — ${r.high.label}</option>`,
+        `<option value="${r.medium.width},${r.medium.height}">Medium — ${r.medium.label}</option>`,
+        `<option value="${r.low.width},${r.low.height}">Low — ${r.low.label}</option>`,
+    ].join("");
+    note.textContent = cam.setup_notes || "";
+}
+
+// ── IO Module → pin tables ───────────────────────────────────────────────────
+function onIoModuleChange() {
+    const mod = getSelectedModule();
+    if (!mod) return;
+    document.getElementById("io-module-note").textContent = mod.description || "";
+    buildInputPinsTable(mod);
+    buildOutputPinsTable(mod);
+}
+
+function buildInputPinsTable(mod) {
+    document.getElementById("input-pins-body").innerHTML = gpioPinsBuildInputRows(mod);
+}
+
+function buildOutputPinsTable(mod) {
+    document.getElementById("output-pins-body").innerHTML = gpioPinsBuildOutputRows(mod);
+}
+
+// ── Build payload and submit ──────────────────────────────────────────────────
+function finalizeSetup() {
+    const dev         = getSelectedDevice();
+    const supportsGpio = dev ? dev.supports_gpio : true;
+
+    const n     = parseInt(document.getElementById("number_of_cameras").value);
+    const ports = ["A", "B", "C", "D"].slice(0, n);
+
+    // Resolution
+    const resParts = document.getElementById("capture_resolution_preset").value.split(",");
+    const captureW = parseInt(resParts[0]);
+    const captureH = parseInt(resParts[1]);
+
+    // GPIO
+    let gpioConfig    = [];
+    let triggerPins   = [];
+    let spotlightPins = [];
+
+    if (supportsGpio) {
+        const gpio = gpioPinsRead("input-pins-body", "output-pins-body");
+        gpioConfig    = gpio.gpioConfig;
+        triggerPins   = gpio.triggerPins;
+        spotlightPins = gpio.spotlightPins;
+    }
+
+    // Validate
+    if (!document.getElementById("part_model").value.trim()) {
+        showSetupError("Product model name is required.");
+        return;
+    }
+    if (supportsGpio && triggerPins.length === 0) {
+        showSetupError("Mark at least one input pin as trigger (cycle start signal).");
+        goToStep(3);
+        return;
+    }
+
+    const payload = {
+        part_model:        document.getElementById("part_model").value.trim(),
+        device_type:       document.getElementById("device_type").value,
+        camera_type:       document.getElementById("camera_type").value,
+        camera_model:      document.getElementById("camera_model").value,
+        number_of_cameras: n,
+        camera_port:       ports,
+        camera_capture_resolution: [captureW, captureH],
+        camera_preview_parameters: {
+            resolution:    [320, 180],
+            exposure_time: parseInt(document.getElementById("preview_exposure").value) || 0,
+            lens_position: 0,
+        },
+        inference_device:    document.getElementById("inference_device").value,
+        camera_index:        parseInt(document.getElementById("camera_index").value) || 0,
+        io_module:           supportsGpio ? document.getElementById("io_module").value : "",
+        trigger_input_pin:   triggerPins[0] || 0,
+        spotlight_gpio_pins: spotlightPins,
+        gpio_configuration:  gpioConfig,
+    };
+
+    document.getElementById("setup-error").classList.add("hidden");
+    fetch("/api/setup/finalize", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { showSetupError(d.error); return; }
+        window.location.href = d.redirect || "/builder";
+    })
+    .catch(() => showSetupError("Server error. Check that the hardware is connected."));
+}
+
+document.getElementById("btn-finalize").addEventListener("click", finalizeSetup);
+
+function showSetupError(msg) {
+    const el = document.getElementById("setup-error");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+}
+
+// ── Part model validation (real-time duplicate check) ───────────────────────
+(function setupPartModelValidation() {
+    const partModelInput = document.getElementById("part_model");
+    const errorHint = document.getElementById("part-model-error");
+    const normalHint = document.getElementById("part-model-hint");
+    let validationTimeout = null;
+
+    partModelInput.addEventListener("input", function () {
+        const model = this.value.trim();
+        errorHint.style.display = "none";
+        normalHint.style.display = "";
+
+        if (!model) return;
+        clearTimeout(validationTimeout);
+        validationTimeout = setTimeout(() => {
+            fetch("/api/validate_part_model", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ part_model: model }),
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (d.exists) {
+                    errorHint.textContent = `A sequence with the name "${model}" already exists. Choose a different name.`;
+                    errorHint.style.display = "";
+                    normalHint.style.display = "none";
+                }
+            })
+            .catch(() => {});
+        }, 500);
+    });
+})();
+
+// ── Init on page load ────────────────────────────────────────────────────────
+(function init() {
+    onDeviceChange();
+    updateCameraPorts();
+    onIoModuleChange();
+    updateCameraIndexVisibility();
+})();
+</script>
+{% endblock %}

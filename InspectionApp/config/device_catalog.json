@@ -1,0 +1,30 @@
+{
+    "_comment": "Device catalog. Each entry describes a supported host platform and its capabilities. device_type is the canonical key stored in sequence JSON and read by AppFactory. supports_gpio controls whether the GPIO step is shown in the setup wizard and whether a real GPIO adapter is used. supported_camera_types and supported_inference_devices restrict the options shown in the wizard for each device.",
+
+    "devices": [
+        {
+            "name": "PC (Linux / Windows)",
+            "device_type": "PC",
+            "supports_gpio": false,
+            "supported_camera_types": ["USB"],
+            "supported_inference_devices": ["CPU"],
+            "max_cameras": 2
+        },
+        {
+            "name": "Raspberry Pi 4B",
+            "device_type": "RaspberryPi",
+            "supports_gpio": true,
+            "supported_camera_types": ["CSI", "USB"],
+            "supported_inference_devices": ["Coral USB Accelerator", "CPU"],
+            "max_cameras": 4
+        },
+        {
+            "name": "Jetson Nano",
+            "device_type": "Jetson",
+            "supports_gpio": false,
+            "supported_camera_types": ["USB"],
+            "supported_inference_devices": ["CPU", "CUDA"],
+            "max_cameras": 2
+        }
+    ]
+}

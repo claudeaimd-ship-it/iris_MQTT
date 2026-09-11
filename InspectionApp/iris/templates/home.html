@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="home-page">
+    <h1 class="home-title">Vision Inspection System</h1>
+    <p class="home-subtitle">Select an action to continue.</p>
+
+    {% if draft_info %}
+    <div class="draft-banner">
+        <div class="draft-banner-text">
+            <strong>Draft in progress:</strong>
+            {% if draft_info.edit_filename %}
+                Editing <code>{{ draft_info.edit_filename }}</code> &mdash; {{ draft_info.part_model }}
+            {% else %}
+                New sequence &mdash; {{ draft_info.part_model }}
+            {% endif %}
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-resume-draft">Resume editing &rarr;</button>
+    </div>
+    {% endif %}
+
+    <div class="home-actions">
+        {% if sequences %}
+        <div class="home-card">
+            <h2>Start Inspection</h2>
+            <p>Open the inspection interface with the active sequence.</p>
+
+            <div class="field-group">
+                <label for="seq-select">Active sequence</label>
+                <select id="seq-select" class="input-select">
+                    {% for seq in sequences %}
+                    <option value="{{ seq.path }}"
+                        {% if current_sequence and seq.path in current_sequence %}selected{% endif %}>
+                        {{ seq.part_model }} &mdash; {{ seq.filename }}
+                        &nbsp;({{ seq.modified }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="home-card-actions">
+                <button class="btn btn-primary" id="btn-go-inspection">Go to Inspection &rarr;</button>
+                <button class="btn btn-ghost" id="btn-edit-sequence">Edit sequence &rarr;</button>
+                <button class="btn btn-ghost" id="btn-clone-sequence">Clone as new part &rarr;</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="home-card home-card-disabled">
+            <h2>Start Inspection</h2>
+            <p class="muted">No sequences configured yet. Create one first.</p>
+            <button class="btn btn-primary" disabled>Go to Inspection</button>
+        </div>
+        {% endif %}
+
+        <div class="home-divider">or</div>
+
+        <div class="home-card">
+            <h2>Calibrate Model</h2>
+            <p>Capture training/test images and run the PaDiM sweep to calibrate the anomaly detection model.</p>
+            <a class="btn btn-secondary" href="{{ url_for('calibration') }}">Go to Calibration &rarr;</a>
+        </div>
+
+        <div class="home-divider">or</div>
+
+        <div class="home-card">
+            <h2>Configure New Sequence</h2>
+            <p>Set up the hardware, cameras, and preprocessing pipeline for a new product model.</p>
+            <a class="btn btn-secondary" href="{{ url_for('setup') }}">New Sequence &rarr;</a>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="clone-sequence-modal" style="display:none">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>Clone as new part</h3>
+            <button type="button" class="modal-close" id="btn-clone-sequence-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="muted">
+                Opens the builder pre-filled with the selected sequence's hardware,
+                cameras, and pipeline steps &mdash; review/adjust as needed, then save.
+                A new set of images/model directories is created for the new part;
+                nothing from the source sequence is shared or overwritten.
+            </p>
+            <div class="field-group">
+                <label for="clone-new-part-model">New product model name</label>
+                <input type="text" id="clone-new-part-model" placeholder="e.g. M02-90W">
+                <small id="clone-part-model-hint">Must be different from any existing sequence.</small>
+                <small id="clone-part-model-error" class="error-hint" style="display:none;color:#d32f2f"></small>
+            </div>
+            <p class="alert alert-error" id="clone-sequence-error" style="display:none"></p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="btn-clone-sequence-cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btn-clone-sequence-confirm">Clone &amp; Open Builder</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("btn-go-inspection")?.addEventListener("click", function () {
+    const path = document.getElementById("seq-select").value;
+    fetch("/api/load_sequence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { showError(d.error); return; }
+        window.location.href = "/inspection";
+    })
+    .catch(() => showError("Could not load sequence. Is the server running?"));
+});
+
+document.getElementById("btn-edit-sequence")?.addEventListener("click", function () {
+    const path = document.getElementById("seq-select").value;
+    fetch("/api/load_sequence_for_edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { showError(d.error); return; }
+        window.location.href = d.redirect;
+    })
+    .catch(() => showError("Could not open sequence for editing."));
+});
+
+document.getElementById("btn-resume-draft")?.addEventListener("click", function () {
+    fetch("/api/resume_draft", { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { showError(d.error); return; }
+        window.location.href = d.redirect;
+    })
+    .catch(() => showError("Could not resume draft."));
+});
+
+// ── Clone as new part ────────────────────────────────────────────────────────
+(function setupCloneSequence() {
+    const modal       = document.getElementById("clone-sequence-modal");
+    const openBtn      = document.getElementById("btn-clone-sequence");
+    const nameInput    = document.getElementById("clone-new-part-model");
+    const hint         = document.getElementById("clone-part-model-hint");
+    const nameError    = document.getElementById("clone-part-model-error");
+    const submitError  = document.getElementById("clone-sequence-error");
+    const confirmBtn   = document.getElementById("btn-clone-sequence-confirm");
+    if (!openBtn) return;  // No sequences yet — nothing to clone.
+
+    let validationTimeout = null;
+    let hasDuplicate = false;
+
+    function openModal() {
+        nameInput.value = "";
+        hint.style.display = "";
+        nameError.style.display = "none";
+        submitError.style.display = "none";
+        hasDuplicate = false;
+        modal.style.display = "flex";
+        nameInput.focus();
+    }
+
+    function closeModal() {
+        modal.style.display = "none";
+    }
+
+    openBtn.addEventListener("click", openModal);
+    document.getElementById("btn-clone-sequence-cancel").addEventListener("click", closeModal);
+    document.getElementById("btn-clone-sequence-close").addEventListener("click", closeModal);
+    modal.addEventListener("click", function (e) {
+        if (e.target === modal) closeModal();
+    });
+
+    // Same real-time duplicate check pattern as the setup wizard.
+    nameInput.addEventListener("input", function () {
+        const model = this.value.trim();
+        nameError.style.display = "none";
+        hint.style.display = "";
+        hasDuplicate = false;
+        if (!model) return;
+
+        clearTimeout(validationTimeout);
+        validationTimeout = setTimeout(() => {
+            fetch("/api/validate_part_model", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ part_model: model }),
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (d.exists) {
+                    hasDuplicate = true;
+                    nameError.textContent = `A sequence with the name "${model}" already exists. Choose a different name.`;
+                    nameError.style.display = "";
+                    hint.style.display = "none";
+                }
+            })
+            .catch(() => {});
+        }, 500);
+    });
+
+    confirmBtn.addEventListener("click", function () {
+        const path = document.getElementById("seq-select").value;
+        const newPartModel = nameInput.value.trim();
+        submitError.style.display = "none";
+
+        if (!newPartModel) {
+            submitError.textContent = "Product model name is required.";
+            submitError.style.display = "block";
+            return;
+        }
+        if (hasDuplicate) {
+            submitError.textContent = "Choose a product model name that isn't already in use.";
+            submitError.style.display = "block";
+            return;
+        }
+
+        confirmBtn.disabled = true;
+        fetch("/api/clone_sequence", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path, new_part_model: newPartModel }),
+        })
+        .then(r => r.json().then(d => ({ ok: r.ok, body: d })))
+        .then(({ ok, body }) => {
+            confirmBtn.disabled = false;
+            if (!ok || body.error) {
+                submitError.textContent = body.error || "Could not clone sequence.";
+                submitError.style.display = "block";
+                return;
+            }
+            window.location.href = body.redirect;
+        })
+        .catch(() => {
+            confirmBtn.disabled = false;
+            submitError.textContent = "Could not reach Iris. Is the server running?";
+            submitError.style.display = "block";
+        });
+    });
+})();
+
+function showError(msg) {
+    const el = document.createElement("div");
+    el.className = "alert alert-error";
+    el.textContent = msg;
+    document.querySelector(".page-content").prepend(el);
+}
+</script>
+{% endblock %}

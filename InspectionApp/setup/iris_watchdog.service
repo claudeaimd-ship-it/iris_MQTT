@@ -1,0 +1,54 @@
+# =============================================================================
+# systemd unit file for iris_watchdog (external liveness watchdog for Iris)
+#
+# Catches a HUNG (not crashed) Iris by polling /api/info from outside the
+# process — see iris_watchdog.sh's header for the recovery logic and the two
+# deployment models it auto-detects.
+#
+# Installation (preferred — substitutes the placeholders below automatically):
+#   bash setup/install_units.sh
+#   sudo systemctl enable --now iris_watchdog
+#
+# Installation (manual): replace every __IRIS_USER__ with your login user
+# (`whoami`) and every __IRIS_HOME__ with your home directory (`echo $HOME`),
+# THEN:
+#   sudo cp iris_watchdog.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iris_watchdog
+#
+# Do NOT use systemd's %h specifier, and do NOT add graphical.target to
+# After= below — both silently broke this unit in production. Full incident
+# history: .github/copilot-instructions.md (search "iris_watchdog.service").
+#
+# Useful commands:
+#   sudo systemctl status  iris_watchdog
+#   journalctl -u iris_watchdog -f
+#
+# Requires: curl installed (used to poll /api/info).
+# =============================================================================
+
+[Unit]
+Description=Iris external liveness watchdog
+# Deliberately no Wants=iris.service (would break the Option 1/2 mutual
+# exclusion) and no graphical.target here (causes a silent ordering cycle
+# with WantedBy=multi-user.target below) — see copilot-instructions.md.
+After=iris.service
+# Same crash-loop protection as iris.service — see its file header.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+# The tokens below (starting with two underscores) are placeholders
+# substituted automatically by `bash setup/install_units.sh` (or replace
+# them by hand — see the file header).
+User=__IRIS_USER__
+Group=__IRIS_USER__
+WorkingDirectory=__IRIS_HOME__/Desktop/InspectionApp
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=__IRIS_HOME__/.Xauthority
+ExecStart=/usr/bin/env bash __IRIS_HOME__/Desktop/InspectionApp/setup/iris_watchdog.sh
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

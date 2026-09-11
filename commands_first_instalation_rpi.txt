@@ -1,0 +1,121 @@
+# ── 1. Sync time and update ──────────────────────────────────────────────────
+sudo timedatectl set-ntp true
+sudo apt-get update
+
+# ── 2. System dependencies ───────────────────────────────────────────────────
+sudo apt-get install -y \
+    build-essential libcap-dev \
+    python3-opencv python3-picamera2
+
+# ── 3. Create virtual environment (inherits system OpenCV and Picamera2) ─────
+python3 -m venv --system-site-packages ~/venvs/mezt
+source ~/venvs/mezt/bin/activate
+
+# ── 4. Install Python packages ───────────────────────────────────────────────
+pip install \
+    "numpy<2.0" \
+    simplejpeg \
+    gpiozero \
+    scipy \
+    scikit-learn \
+    matplotlib \
+    onnxruntime \
+    flask \
+    flask-cors \
+    gunicorn \
+    tflite-runtime \
+    pycoral
+
+# 4.1. Install and config dnsmasq Pi share IP DHCP
+#    ONLY eth0 (no debe tocar wlan0/JE-DA&A)
+sudo apt-get install -y dnsmasq
+
+# ── 5. Choose HOW Iris starts — 2 MUTUALLY EXCLUSIVE options, pick ONE ─────
+#   OPTION 2 (★ default) — Kiosk with monitor: Pi boots, opens the browser
+#                           on its own. Use this unless the Pi has no monitor.
+#   OPTION 1              — Headless, no monitor: only starts the server.
+# Never enable both (they'd fight over port 5000). Full detail: see
+# setup/iris_watchdog.sh header.
+
+# ── OPTION 2 (★ default) — Kiosk: starts AND opens the browser ────────────
+# Enable desktop auto-login first (required, or the browser never opens):
+#   sudo raspi-config → System Options → Boot / Auto Login → Desktop Autologin
+#   (reboot after saving)
+cd ~/Desktop/InspectionApp
+mkdir -p ~/.config/autostart
+cp setup/iris-browser.desktop ~/.config/autostart/iris-browser.desktop
+bash setup/install_units.sh   # also installs iris_watchdog.service (step 6)
+# If iris.service was enabled from a previous install, disable it:
+#   sudo systemctl disable --now iris
+
+# ── OPTION 1 — Headless: starts the server only, no browser ───────────────
+cd ~/Desktop/InspectionApp
+bash setup/install_units.sh
+sudo systemctl enable --now iris
+# Check the venv name ("mezt") in /etc/systemd/system/iris.service matches yours.
+
+# ── 6. External watchdog (recovers a HUNG, not crashed, Iris) ──────────────
+sudo systemctl enable --now iris_watchdog
+systemctl status iris iris_watchdog
+journalctl -b | grep -i "ordering cycle"   # empty output = good
+
+-------------------------------------------------------------------
+# ── Camera configuration (HD Camera) ──
+sudo nano /boot/firmware/config.txt
+# Ensure these lines exist:
+#   camera_auto_detect=0
+#   dtparam=i2c_arm=on
+#   dtoverlay=imx477
+sudo reboot
+
+-------------------------------------------------------------------
+# ── Useful commands ─────────────────────────────────────────────────────
+#   sudo systemctl status iris_watchdog   # both options
+#   journalctl -u iris_watchdog -f
+#   sudo systemctl status  iris           # Option 1
+#   journalctl -u iris -f
+#   pgrep -af gunicorn                    # Option 2
+#   pgrep -af firefox
+#   tail -f data/logs/$(date +%Y%m)/$(date +%Y%m%d)_log-iris.txt   # Option 2, no journalctl
+#   pkill -f "gunicorn.*IrisServer" && bash setup/start_iris.sh &   # Option 2 manual restart
+
+-------------------------------------------------------------------
+# ── Debugging: run start_iris.sh by hand (Option 2 only) ───────────────────
+mv ~/.config/autostart/iris-browser.desktop ~/.config/autostart/iris-browser.desktop.disabled
+sudo systemctl stop iris_watchdog
+pkill -f "gunicorn.*IrisServer"
+cd ~/Desktop/InspectionApp && bash setup/start_iris.sh
+# When done:
+mv ~/.config/autostart/iris-browser.desktop.disabled ~/.config/autostart/iris-browser.desktop
+sudo systemctl start iris_watchdog
+
+-------------------------------------------------------------------
+# ── Troubleshooting: Iris stuck restarting in a loop (Option 1) ────────────
+#   sudo systemctl status iris                 # look for "start-limit-hit"
+#   journalctl -u iris -n 50 --no-pager        # see why it's crashing
+#   sudo systemctl reset-failed iris           # after fixing the root cause
+#   sudo systemctl restart iris
+#   sudo lsof -i:5000                          # port 5000 already in use?
+#   sudo pkill -9 -f "gunicorn.*IrisServer"
+#   sudo systemctl stop iris                   # stop the loop immediately
+
+-------------------------------------------------------------------
+# ── Quick reference: stop everything / recover Iris (all options) ─────────
+# Stop and disable both units (safe, reversible — re-enable at the bottom):
+sudo systemctl stop    iris_watchdog
+sudo systemctl disable iris_watchdog
+sudo systemctl stop    iris
+sudo systemctl disable iris
+
+# Force-kill any stuck gunicorn worker, confirm port 5000 is free:
+sudo pkill -9 -f "gunicorn.*IrisServer"
+sudo lsof -i:5000   # should print nothing
+
+# Run Iris manually in the foreground (Ctrl+C to stop):
+cd ~/Desktop/InspectionApp
+source ~/venvs/mezt/bin/activate   # visredPC / visred / mezt, whichever exists
+gunicorn --config gunicorn.conf.py "iris.IrisServer:create_iris_app()"
+
+# Re-enable both units once done:
+sudo systemctl enable --now iris
+sudo systemctl enable --now iris_watchdog
