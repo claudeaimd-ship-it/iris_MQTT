@@ -10,3 +10,4 @@ bash ~/Desktop/InspectionApp/setup/start_iris.sh
 #Comentario mio
 echo "Proceso finalizado. Presiona Enter para cerrar esta ventana."
 read
+#arreglar dupeo
