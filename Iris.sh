@@ -7,5 +7,6 @@ bash ~/Desktop/InspectionApp/setup/start_iris.sh
 # Esto es para iniciar manualmente
 # Y esto para iniciar automáticamente al encender la computadora
 # Mas comentarios de prueba
+#Comentario mio
 echo "Proceso finalizado. Presiona Enter para cerrar esta ventana."
 read
