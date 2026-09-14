@@ -1,6 +1,6 @@
 # InspectionApp — Iris Web Server Requirements
 # Python 3.10+
-
+#paho-mqtt==1.6.1
 # Web framework
 flask>=2.3.0
 flask-cors>=4.0.0
