@@ -24,7 +24,8 @@ pip install \
     flask-cors \
     gunicorn \
     tflite-runtime \
-    pycoral
+    pycoral \
+    paho-mqtt==1.6.1
 
 # 4.1. Install and config dnsmasq Pi share IP DHCP
 #    ONLY eth0 (no debe tocar wlan0/JE-DA&A)

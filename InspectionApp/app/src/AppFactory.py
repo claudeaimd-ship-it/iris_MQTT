@@ -16,6 +16,8 @@ from app.src.interfaces.IControllableCamera import IControllableCamera
 from app.src.interfaces.ICamera import ICamera
 from app.src.interfaces.ICsiMux import ICsiMux
 from app.src.interfaces.IGpio import IGpio
+from app.src.adapters.output.MqttPublisherAdapter import MqttPublisherAdapter
+from app.src.adapters.output.CompositeRepository import CompositeRepository
 
 
 class AppFactory:
@@ -122,7 +124,7 @@ class AppFactory:
                     f"[WARN] Camera model '{camera_model}' (type '{camera_type}') not found in "
                     f"camera_catalog.json. Using default capabilities (supports_af_motor=True)."
                 )
-        
+
         # Load hardware configuration from the sequence JSON, with fallbacks to defaults.
         capture_resolution = tuple(self._sequence["hardware"].get("camera_capture_resolution"))
         if not capture_resolution or capture_resolution == (0, 0):
@@ -190,10 +192,26 @@ class AppFactory:
             from app.src.adapters.output.NullGpioAdapter import NullGpioAdapter
             self._gpio = NullGpioAdapter(gpio_configuration=gpio_configuration)
 
-        self._repository = LocalStorageAdapter(
+        # ── Repository adapter ─────────────────────────────────────────────
+        local_repo = LocalStorageAdapter(
             traceability_path=traceability_path,
             inference_images_path=inference_img_path,
         )
+
+        mqtt_cfg = self._defaults.get("mqtt", {})
+        if mqtt_cfg.get("enabled", False):
+            mqtt_repo = MqttPublisherAdapter(
+                broker_host=mqtt_cfg["broker_host"],
+                topic=mqtt_cfg["topic"],
+                broker_port=mqtt_cfg.get("broker_port", 1883),
+                client_id=mqtt_cfg.get("client_id", "inspectionapp"),
+                qos=mqtt_cfg.get("qos", 1),
+                username=mqtt_cfg.get("username"),
+                password=mqtt_cfg.get("password"),
+            )
+            self._repository = CompositeRepository([local_repo, mqtt_repo])
+        else:
+            self._repository = local_repo
 
     # =========================================================================
     # Private — inference engine construction
@@ -286,15 +304,15 @@ class AppFactory:
         """
         if self._camera is not None and hasattr(self._camera, "_capture_resolution"):
             return self._camera._capture_resolution  # type: ignore[attr-defined]
-        
+
         capture_resolution = tuple(self._sequence["hardware"].get("camera_capture_resolution"))
-        
+
         if not capture_resolution or capture_resolution == (0, 0):
             capture_resolution_default = tuple(self._defaults["camera_capture_resolution"])
             return capture_resolution_default
-        
+
         return capture_resolution
-    
+
     def shutdown(self) -> None:
         """
         Release all hardware resources gracefully.
@@ -314,6 +332,8 @@ class AppFactory:
         self._camera     = None
         self._mux        = None
         self._gpio       = None
+        if self._repository is not None and hasattr(self._repository, "close"):
+            self._repository.close()
         self._repository = None
         self._channel_status = {}
         self._hardware_wedged_message = None
@@ -721,7 +741,6 @@ class AppFactory:
         return {
             view: {
                 "train_ok":  os.path.join(base, "train", "OK",  view),
-
                 "test_ok":   os.path.join(base, "test",  "OK",  view),
                 "test_nok":  os.path.join(base, "test",  "NOK", view),
             }

@@ -108,10 +108,25 @@ class CsiCameraAdapter(IControllableCamera):
                     self.picam_instance.options["quality"] = 95
                     self.picam_instance.start()
                     self._is_initialized = True
-                    time.sleep(0.02)  # Allow the sensor to stabilize after starting.
+
+                    # The very first capture after a cold init can take several seconds
+                    # (AWB/AE convergence + large first-frame DMA setup at full capture
+                    # resolution) — far longer than the steady-state
+                    # _PICAM_CALL_TIMEOUT_S=1.0s budget used for every capture afterward.
+                    # Consuming one throwaway frame here, with a generous one-time timeout,
+                    # absorbs that cold-start cost so the first real capture_frame() call
+                    # (warmup_all_channels() or the first inspection cycle) hits an
+                    # already-warmed pipeline and stays within the normal 1s budget.
+                    try:
+                        def _warmup_capture():
+                            req = self.picam_instance.capture_request()
+                            req.release()
+                        self._call_picam_with_timeout(_warmup_capture, timeout=8.0)
+                    except Exception as e:
+                        print(f"[WARN] initialize_camera: warm-up capture failed ({e}); proceeding anyway.")
+
                     print("[OK] CSI camera initialized.")
                     return
-
                 except Exception as e:
                     # If Picamera2() raised before being assigned, clean it up explicitly so
                     # libcamera can transition the camera back to Available state.
@@ -175,19 +190,23 @@ class CsiCameraAdapter(IControllableCamera):
 
     _PICAM_CALL_TIMEOUT_S: float = 1.0  # Seconds before a blocking Picamera2 call is aborted.
 
-    def _call_picam_with_timeout(self, fn, *args):
+    def _call_picam_with_timeout(self, fn, *args, timeout: float | None = None):
         """
         Call ``fn(*args)`` in a daemon thread and return the result.
 
         Raises RuntimeError if the call does not complete within
-        ``_PICAM_CALL_TIMEOUT_S`` seconds. Protects against libcamera ISP
-        stalls — typically observed after the camera runs continuously for
-        several days — where ``capture_request()`` or ``capture_array()``
-        block the calling thread indefinitely.
+        ``_PICAM_CALL_TIMEOUT_S`` seconds (or ``timeout`` if given). Protects
+        against libcamera ISP stalls — typically observed after the camera
+        runs continuously for several days — where ``capture_request()`` or
+        ``capture_array()`` block the calling thread indefinitely.
 
         Args:
             fn: Callable to invoke.
             *args: Positional arguments forwarded to ``fn``.
+            timeout (float | None): Overrides ``_PICAM_CALL_TIMEOUT_S`` for this
+                call only. Used for the one-time warm-up capture in
+                ``initialize_camera()``, which needs a longer budget than the
+                steady-state 1.0 s.
 
         Returns:
             Return value of ``fn(*args)``.
@@ -210,9 +229,10 @@ class CsiCameraAdapter(IControllableCamera):
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
 
-        if not done_event.wait(timeout=self._PICAM_CALL_TIMEOUT_S):
+        timeout_s = timeout if timeout is not None else self._PICAM_CALL_TIMEOUT_S
+        if not done_event.wait(timeout=timeout_s):
             raise RuntimeError(
-                f"Picamera2 call timed out after {self._PICAM_CALL_TIMEOUT_S:.0f} s — "
+                f"Picamera2 call timed out after {timeout_s:.0f} s — "
                 "libcamera ISP may be stalled. Camera will be reinitialized."
             )
 
@@ -459,4 +479,3 @@ class CsiCameraAdapter(IControllableCamera):
                 self._is_initialized = False
                 gc.collect()
                 time.sleep(0.3)  # Give libcamera time to complete the Configured→Available transition.
-            

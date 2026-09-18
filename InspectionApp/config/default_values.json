@@ -1,66 +1,70 @@
 {
-    "send_signal_duration_ms": 500,
-    "timeout_waiting_for_signal_ms": 5000,
-    "check_signal_interval_ms": 0,
-    "restart_pin": "2679",
-    "cycle_watchdog_timeout_s": 60,
-    "camera_capture_resolution": [
-        4608,
-        2592
-    ],
-    "camera_preview_resolution": [
-        320,
-        240
-    ],
-    "csi_channels": [
-        {
-            "name": "A",
-            "i2c_cmd": "i2cset -y 10 0x70 0x00 0x04",
-            "gpio_state": {
-                "4": 0,
-                "17": 0,
-                "18": 1
-            }
-        },
-        {
-            "name": "B",
-            "i2c_cmd": "i2cset -y 10 0x70 0x00 0x05",
-            "gpio_state": {
-                "4": 1,
-                "17": 0,
-                "18": 1
-            }
-        },
-        {
-            "name": "C",
-            "i2c_cmd": "i2cset -y 10 0x70 0x00 0x06",
-            "gpio_state": {
-                "4": 0,
-                "17": 1,
-                "18": 0
-            }
-        },
-        {
-            "name": "D",
-            "i2c_cmd": "i2cset -y 10 0x70 0x00 0x07",
-            "gpio_state": {
-                "4": 1,
-                "17": 1,
-                "18": 0
-            }
-        }
-    ],
-    "train_images_path": "./data/images/train/",
-    "target_train_images": 1500,
-    "inference_images_path": "./data/images/inference/",
-    "results_inference_path": "./data/traceability/inference/",
-    "logs_path": "./data/logs/",
-    "part_id_counter_path": "./config/counter.json",
-    "tools": [
-        "set_time_exposure",
-        "set_lens_position",
-        "apply_roi_crop",
-        "put_black_circle",
-        "put_black_rectangle"
-    ]
+  "send_signal_duration_ms": 500,
+  "timeout_waiting_for_signal_ms": 5000,
+  "check_signal_interval_ms": 0,
+  "restart_pin": "2679",
+  "cycle_watchdog_timeout_s": 60,
+  "camera_capture_resolution": [ 4608, 2592 ],
+  "camera_preview_resolution": [ 320, 240 ],
+  "csi_channels": [
+    {
+      "name": "A",
+      "i2c_cmd": "i2cset -y 10 0x70 0x00 0x04",
+      "gpio_state": {
+        "4": 0,
+        "17": 0,
+        "18": 1
+      }
+    },
+    {
+      "name": "B",
+      "i2c_cmd": "i2cset -y 10 0x70 0x00 0x05",
+      "gpio_state": {
+        "4": 1,
+        "17": 0,
+        "18": 1
+      }
+    },
+    {
+      "name": "C",
+      "i2c_cmd": "i2cset -y 10 0x70 0x00 0x06",
+      "gpio_state": {
+        "4": 0,
+        "17": 1,
+        "18": 0
+      }
+    },
+    {
+      "name": "D",
+      "i2c_cmd": "i2cset -y 10 0x70 0x00 0x07",
+      "gpio_state": {
+        "4": 1,
+        "17": 1,
+        "18": 0
+      }
+    }
+  ],
+  "train_images_path": "./data/images/train/",
+  "target_train_images": 1500,
+  "inference_images_path": "./data/images/inference/",
+  "results_inference_path": "./data/traceability/inference/",
+  "logs_path": "./data/logs/",
+  "part_id_counter_path": "./config/counter.json",
+  "tools": [
+    "set_time_exposure",
+    "set_lens_position",
+    "apply_roi_crop",
+    "put_black_circle",
+    "put_black_rectangle"
+  ],
+  "mqtt": {
+    "enabled": true,
+    "broker_host": "172.24.217.243",
+    "broker_port": 1883,
+    "topic": "iris/waterpump/H07",
+    "client_id": "mqtt-bulk-insert-JETC",
+    "qos": 1,
+    "username": null,
+    "password": null
+  }
 }
